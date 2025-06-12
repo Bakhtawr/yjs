@@ -6,7 +6,7 @@ import CommentList from './commentlist';
 const ydoc = new Y.Doc();
 const provider = new WebsocketProvider(
   'wss://yjs-server.onrender.com', 
-  'comments-room',
+  'new-channel-name',
   ydoc
 );
 
