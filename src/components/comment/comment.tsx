@@ -31,6 +31,23 @@ function Comments() {
   const [replyText, setReplyText] = useState<string>('');
   const [editingComment, setEditingComment] = useState<{id: string, text: string} | null>(null);
 
+  const findComment = (id: string, commentList: Comment[]): {comment: Comment, parent?: Comment, isReply: boolean} | null => {
+    for (const comment of commentList) {
+      if (comment.id === id) {
+        return { comment, isReply: false };
+      }
+      if (comment.replies && comment.replies.length > 0) {
+        const foundInReplies = findComment(id, comment.replies);
+        if (foundInReplies) {
+          return foundInReplies.comment.id === id 
+            ? { comment: foundInReplies.comment, parent: comment, isReply: true }
+            : foundInReplies;
+        }
+      }
+    }
+    return null;
+  };
+
   const addComment = () => {
     if (!newComment.trim() && !replyText.trim()) return;
   
@@ -44,13 +61,12 @@ function Comments() {
   
     ydoc.transact(() => {
       if (replyingTo) {
-        const parentComment = yComments.toArray().find((c) => c.id === replyingTo);
-        if (parentComment) {
-
-          if (!Array.isArray(parentComment.replies)) {
-            parentComment.replies = [];
+        const found = findComment(replyingTo, yComments.toArray());
+        if (found) {
+          if (!found.comment.replies) {
+            found.comment.replies = [];
           }
-          parentComment.replies.push(newEntry);
+          found.comment.replies.push(newEntry);
         }
       } else {
         yComments.push([newEntry]);
@@ -61,102 +77,61 @@ function Comments() {
     setReplyingTo(null);
     setNewComment('');
   };
-  
 
-
-
-  const startEditing = (comment: Comment, isReply: boolean = false, parentId?: string) => {
-    ydoc.transact(() => {
-      if (isReply && parentId) {
-        const parentIndex = yComments.toArray().findIndex(c => c.id === parentId);
-        if (parentIndex !== -1) {
-          const parentComment = yComments.get(parentIndex);
-          const replyIndex = parentComment.replies.findIndex(reply => reply.id === comment.id);
-          
-          if (replyIndex !== -1) {
-            parentComment.replies[replyIndex].isEditing = true;
-          }
-        }
-      } else {
-        const index = yComments.toArray().findIndex(c => c.id === comment.id);
-        if (index !== -1) {
-          yComments.get(index).isEditing = true;
-        }
-      }
-    });
-    setEditingComment({ id: comment.id, text: comment.text });
+  const startEditing = (comment: Comment, _isReply: boolean = false) => {
+    const found = findComment(comment.id, yComments.toArray());
+    if (found) {
+      ydoc.transact(() => {
+        found.comment.isEditing = true;
+      });
+      setEditingComment({ id: comment.id, text: comment.text });
+    }
   };
-  
 
-  const saveEdit = (isReply: boolean = false, parentId?: string) => {
+  const saveEdit = (_isReply: boolean = false) => {
     if (!editingComment) return;
 
-    ydoc.transact(() => {
-      if (isReply && parentId) {
-        const parentComment = yComments.toArray().find(c => c.id === parentId);
-        if (parentComment) {
-          const replyIndex = parentComment.replies.findIndex(r => r.id === editingComment.id);
-          if (replyIndex !== -1) {
-            parentComment.replies[replyIndex].text = editingComment.text;
-            parentComment.replies[replyIndex].isEditing = false;
-          }
-        }
-      } else {
-        const index = yComments.toArray().findIndex(c => c.id === editingComment.id);
-        if (index !== -1) {
-          yComments.get(index).text = editingComment.text;
-          yComments.get(index).isEditing = false;
-        }
-      }
-    });
+    const found = findComment(editingComment.id, yComments.toArray());
+    if (found) {
+      ydoc.transact(() => {
+        found.comment.text = editingComment.text;
+        found.comment.isEditing = false;
+      });
+    }
 
     setEditingComment(null);
   };
 
   const cancelEdit = (isReply: boolean = false, parentId?: string) => {
-    ydoc.transact(() => {
-      if (isReply && parentId) {
-        const parentComment = yComments.toArray().find(c => c.id === parentId);
-        if (parentComment) {
-          const replyIndex = parentComment.replies.findIndex(r => r.id === editingComment?.id);
-          if (replyIndex !== -1) {
-            parentComment.replies[replyIndex].isEditing = false;
-          }
-        }
-      } else {
-        const index = yComments.toArray().findIndex(c => c.id === editingComment?.id);
-        if (index !== -1) {
-          yComments.get(index).isEditing = false;
-        }
-      }
-    });
-
+    const found = findComment(editingComment?.id || '', yComments.toArray());
+    if (found) {
+      ydoc.transact(() => {
+        found.comment.isEditing = false;
+      });
+    }
     setEditingComment(null);
   };
 
-
   const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
+    const found = findComment(id, yComments.toArray());
+    if (!found) return;
+
     ydoc.transact(() => {
-      if (isReply && parentId) {
-        const parentIndex = yComments.toArray().findIndex(c => c.id === parentId);
-        if (parentIndex !== -1) {
-          const parentComment = yComments.get(parentIndex);
-          const replyIndex = parentComment.replies.findIndex(reply => reply.id === id);
-          
-          if (replyIndex !== -1) {
-            parentComment.replies.splice(replyIndex, 1); // Correctly remove reply
-          }
+      if (found.parent) {
+        // This is a reply, remove from parent's replies
+        const replyIndex = found.parent.replies.findIndex(r => r.id === id);
+        if (replyIndex !== -1) {
+          found.parent.replies.splice(replyIndex, 1);
         }
       } else {
+        // This is a top-level comment, remove from main array
         const index = yComments.toArray().findIndex(c => c.id === id);
         if (index !== -1) {
-          yComments.delete(index, 1); // Delete comment properly
+          yComments.delete(index, 1);
         }
       }
     });
   };
-  
-  
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
