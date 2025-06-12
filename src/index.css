@@ -16,3 +16,6 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+textarea{
+  color: black;
+}

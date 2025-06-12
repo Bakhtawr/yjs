@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import CommentList from './CommentList';
+import CommentList from './commentlist';
 
 const ydoc = new Y.Doc();
 const provider = new WebsocketProvider(

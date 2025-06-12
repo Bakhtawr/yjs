@@ -1,6 +1,7 @@
 
 
-import Comments from './components/comment/Comment';
+import Comments from './components/comment/comment';
+
 
 
 
