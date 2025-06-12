@@ -32,65 +32,61 @@ function Comments() {
   const [editingComment, setEditingComment] = useState<{id: string, text: string} | null>(null);
 
   const addComment = () => {
-    if (!newComment.trim() && !replyText.trim()) return; 
+    if (!newComment.trim() && !replyText.trim()) return;
   
     const newEntry: Comment = {
-      text: replyingTo ? replyText : newComment, 
+      text: replyingTo ? replyText : newComment,
       author: user,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       id: Date.now().toString(),
-      replies: []
+      replies: [],
     };
   
-    if (replyingTo) {
-      ydoc.transact(() => {
-        const parentComment = yComments.toArray().find(c => c.id === replyingTo);
+    ydoc.transact(() => {
+      if (replyingTo) {
+        const parentComment = yComments.toArray().find((c) => c.id === replyingTo);
         if (parentComment) {
+
+          if (!Array.isArray(parentComment.replies)) {
+            parentComment.replies = [];
+          }
           parentComment.replies.push(newEntry);
         }
-      });
-      
-      setReplyText(''); 
-      setReplyingTo(null);
-    } else {
-      yComments.push([newEntry]);
-      setNewComment('');
-    }
+      } else {
+        yComments.push([newEntry]);
+      }
+    });
+  
+    setReplyText('');
+    setReplyingTo(null);
+    setNewComment('');
   };
+  
 
-  const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
+
+
+  const startEditing = (comment: Comment, isReply: boolean = false, parentId?: string) => {
     ydoc.transact(() => {
       if (isReply && parentId) {
-        const parentComment = yComments.toArray().find(c => c.id === parentId);
-        if (parentComment) {
-          parentComment.replies = parentComment.replies.filter(reply => reply.id !== id);
+        const parentIndex = yComments.toArray().findIndex(c => c.id === parentId);
+        if (parentIndex !== -1) {
+          const parentComment = yComments.get(parentIndex);
+          const replyIndex = parentComment.replies.findIndex(reply => reply.id === comment.id);
+          
+          if (replyIndex !== -1) {
+            parentComment.replies[replyIndex].isEditing = true;
+          }
         }
       } else {
-        const index = yComments.toArray().findIndex(c => c.id === id);
+        const index = yComments.toArray().findIndex(c => c.id === comment.id);
         if (index !== -1) {
-          yComments.delete(index, 1);
+          yComments.get(index).isEditing = true;
         }
       }
     });
-  };
-
-  const startEditing = (comment: Comment, isReply: boolean = false, parentId?: string) => {
-    if (isReply && parentId) {
-      const parentComment = yComments.toArray().find(c => c.id === parentId);
-      if (parentComment) {
-        const replyIndex = parentComment.replies.findIndex(r => r.id === comment.id);
-        if (replyIndex !== -1) {
-          parentComment.replies[replyIndex].isEditing = true;
-        }
-      }
-    } else {
-      const index = yComments.toArray().findIndex(c => c.id === comment.id);
-      if (index !== -1) {
-        yComments.get(index).isEditing = true;
-      }
-    }
     setEditingComment({ id: comment.id, text: comment.text });
   };
+  
 
   const saveEdit = (isReply: boolean = false, parentId?: string) => {
     if (!editingComment) return;
@@ -137,6 +133,30 @@ function Comments() {
 
     setEditingComment(null);
   };
+
+
+  const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
+    ydoc.transact(() => {
+      if (isReply && parentId) {
+        const parentIndex = yComments.toArray().findIndex(c => c.id === parentId);
+        if (parentIndex !== -1) {
+          const parentComment = yComments.get(parentIndex);
+          const replyIndex = parentComment.replies.findIndex(reply => reply.id === id);
+          
+          if (replyIndex !== -1) {
+            parentComment.replies.splice(replyIndex, 1); // Correctly remove reply
+          }
+        }
+      } else {
+        const index = yComments.toArray().findIndex(c => c.id === id);
+        if (index !== -1) {
+          yComments.delete(index, 1); // Delete comment properly
+        }
+      }
+    });
+  };
+  
+  
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
