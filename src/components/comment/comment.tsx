@@ -112,26 +112,30 @@ function Comments() {
     setEditingComment(null);
   };
 
-  const deleteComment = (id: string, _isReply: boolean = false, _parentId?: string) => {
-    const found = findComment(id, yComments.toArray());
-    if (!found) return;
-
+  const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
     ydoc.transact(() => {
-      if (found.parent) {
-        // This is a reply, remove from parent's replies
-        const replyIndex = found.parent.replies.findIndex(r => r.id === id);
-        if (replyIndex !== -1) {
-          found.parent.replies.splice(replyIndex, 1);
+      if (isReply && parentId) {
+        const parentIndex = yComments.toArray().findIndex(c => c.id === parentId);
+        if (parentIndex !== -1) {
+          const parentComment = yComments.get(parentIndex);
+          const replyIndex = parentComment.replies.findIndex(reply => reply.id === id);
+  
+          if (replyIndex !== -1) {
+            parentComment.replies.splice(replyIndex, 1); // Correctly remove reply
+          }
         }
       } else {
-        // This is a top-level comment, remove from main array
         const index = yComments.toArray().findIndex(c => c.id === id);
         if (index !== -1) {
-          yComments.delete(index, 1);
+          yComments.delete(index, 1); // Delete comment properly
         }
       }
     });
+  
+    // Force UI to update
+    setComments([...yComments.toArray()]);
   };
+  
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -142,25 +146,22 @@ function Comments() {
 
   useEffect(() => {
     const updateComments = () => {
-      try {
-        setComments(yComments.toArray());
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to update comments');
-      }
+      setComments([...yComments.toArray()]); // Refresh state on changes
     };
   
-    yComments.observe(updateComments);
+    yComments.observeDeep(updateComments); // Observe deeply for nested changes
     updateComments();
-    
+  
     provider.on('status', (event: { status: string }) => {
       setIsConnected(event.status === 'connected');
     });
-
+  
     return () => {
-      yComments.unobserve(updateComments);
+      yComments.unobserveDeep(updateComments);
       provider.off('status');
     };
   }, []);
+  
 
   if (error) {
     return (
