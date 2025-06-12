@@ -102,7 +102,7 @@ function Comments() {
     setEditingComment(null);
   };
 
-  const cancelEdit = (isReply: boolean = false, parentId?: string) => {
+  const cancelEdit = (_isReply: boolean = false, _parentId?: string) => {
     const found = findComment(editingComment?.id || '', yComments.toArray());
     if (found) {
       ydoc.transact(() => {
@@ -112,7 +112,7 @@ function Comments() {
     setEditingComment(null);
   };
 
-  const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
+  const deleteComment = (id: string, _isReply: boolean = false, _parentId?: string) => {
     const found = findComment(id, yComments.toArray());
     if (!found) return;
 
