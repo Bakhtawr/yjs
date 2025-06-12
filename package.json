@@ -10,14 +10,13 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build",
-  "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.10",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-yjs": "^2.0.1",
-    "y-websocket": "^3.0.0",
     "yjs": "^13.6.27"
   },
   "devDependencies": {
@@ -35,6 +34,7 @@
     "tailwindcss": "^4.1.10",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "y-websocket": "^1.4.5"
   }
 }

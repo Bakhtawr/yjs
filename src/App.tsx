@@ -5,12 +5,11 @@ import { WebsocketProvider } from 'y-websocket';
 const ydoc = new Y.Doc();
 // Change the WebSocket provider URL to:
 const provider = new WebsocketProvider(
-  window.location.hostname === 'localhost' 
-    ? 'ws://localhost:1234' 
-    : 'wss://y-webrtc-signaling-eu.herokuapp.com',
-  'comments-room', 
+  'wss://yjs-server.onrender.com', 
+  'comments-room',
   ydoc
 );
+
 const yComments = ydoc.getArray('comments');
 
 function App() {
