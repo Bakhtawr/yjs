@@ -2,9 +2,6 @@ import React, { useState, useEffect } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import CommentList from './commentlist';
-import { setupOnlineUsers, type OnlineUser } from '../../utils/onlineUsers';
-import OnlineUsers from './onlineusers';
-
 
 const ydoc = new Y.Doc();
 const provider = new WebsocketProvider(
@@ -12,7 +9,6 @@ const provider = new WebsocketProvider(
   'new-channel-name',
   ydoc
 );
-const awareness = provider.awareness;
 
 interface Comment {
   text: string;
@@ -34,29 +30,6 @@ function Comments() {
   const [error, setError] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<string>('');
   const [editingComment, setEditingComment] = useState<{id: string, text: string} | null>(null);
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
-
-  useEffect(() => {
-    const { getOnlineUsers, updateUserStatus } = setupOnlineUsers(awareness, user);
-    
-    // Set user as online
-    updateUserStatus(true);
-    
-    const handleAwarenessChange = () => {
-      setOnlineUsers(getOnlineUsers());
-    };
-    
-    awareness.on('change', handleAwarenessChange);
-    
-    return () => {
-      // Set user as offline when component unmounts
-      updateUserStatus(false);
-      awareness.off('change', handleAwarenessChange);
-    };
-  }, [user]);
-
-
-
 
   const findComment = (id: string, commentList: Comment[]): {comment: Comment, parent?: Comment, isReply: boolean} | null => {
     for (const comment of commentList) {
@@ -213,7 +186,12 @@ function Comments() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Real-Time Discussion</h1>
-            <OnlineUsers users={onlineUsers} currentUser={user} />          
+            <div className="flex items-center mt-1">
+              <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+              <span className="text-sm text-gray-600">
+                {isConnected ? `Connected as ${user}` : 'Connecting...'}
+              </span>
+            </div>
           </div>
           <span className="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-medium">
             {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
@@ -300,9 +278,3 @@ function Comments() {
 }
 
 export default Comments;
-
-function getRandomColor() {
-  const colors = ['#ff5733', '#33ff57', '#5733ff', '#ff33a1', '#33a1ff'];
-  return colors[Math.floor(Math.random() * colors.length)];
-}
-
