@@ -1,4 +1,4 @@
-import type { Comment, User } from './yjsSetup';
+import type { Comment, User } from '../yjsSetup';
 
 export interface Notification {
   id: string;

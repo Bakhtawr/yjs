@@ -1,4 +1,4 @@
-import type { User } from './yjsSetup';
+import type { User } from '../yjsSetup';
 
 export const findMentions = (text: string, users: User[]): { userId: string, position: number, length: number }[] => {
   const mentions: { userId: string, position: number, length: number }[] = [];
