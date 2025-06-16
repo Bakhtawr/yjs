@@ -1,4 +1,4 @@
-import type { Comment } from './yjsSetup';
+import type { Comment } from '../yjsSetup';
 
 /**
  * Finds a comment by its ID in a comment tree

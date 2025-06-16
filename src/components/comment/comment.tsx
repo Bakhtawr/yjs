@@ -119,8 +119,13 @@ function Comments() {
               parentComment,
               user,
               notifications
-            );
-            setNotifications([...notifications, ...replyNotifications]);
+            ).map(notification => ({
+              ...notification,
+              // Ensure recipient is set to parent comment author
+              recipientId: parentComment.author.id
+            }));
+            
+            setNotifications(prev => [...prev, ...replyNotifications]);
           }
         }
       } else {
@@ -133,13 +138,27 @@ function Comments() {
         user,
         users,
         notifications
-      );
-      setNotifications([...notifications, ...mentionNotifications]);
+      ).map(notification => {
+        // Find the specific mention that triggered this notification
+        const mention = yComment.get('mentions').find((m: any) => 
+          notification.content === yComment.get('text').substring(m.position, m.position + m.length)
+        );
+        return {
+          ...notification,
+          // Ensure recipient is set to mentioned user
+          recipientId: mention.userId
+        };
+      });
+      
+      setNotifications(prev => [...prev, ...mentionNotifications]);
     });
     
+    // Reset form fields
     setReplyText('');
     setReplyingTo(null);
     setNewComment('');
+    
+    // Update presence information
     if (provider) updateActiveComment(provider, null);
   };
 
@@ -148,32 +167,71 @@ function Comments() {
     if (provider) updateActiveComment(provider, comment.id);
     
     ydoc.transact(() => {
-      const index = yComments.toArray().findIndex(c => {
+      // Search in main comments first
+      let commentIndex = yComments.toArray().findIndex(c => {
         const cComment = toComment(c);
         return cComment.id === comment.id;
       });
-      if (index !== -1) {
-        const commentMap = yComments.get(index);
+  
+      if (commentIndex !== -1) {
+        const commentMap = yComments.get(commentIndex);
         commentMap.set('isEditing', true);
+      } else {
+        // If not found, search in replies
+        for (let i = 0; i < yComments.length; i++) {
+          const parent = yComments.get(i);
+          const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
+          
+          const replyIndex = replies.toArray().findIndex(r => {
+            const replyComment = toComment(r);
+            return replyComment.id === comment.id;
+          });
+  
+          if (replyIndex !== -1) {
+            const replyMap = replies.get(replyIndex);
+            replyMap.set('isEditing', true);
+            break;
+          }
+        }
       }
     });
   };
 
   const saveEdit = () => {
     if (!editingComment) return;
-
+  
     ydoc.transact(() => {
-      const index = yComments.toArray().findIndex(c => {
+      // Find the comment in the main comments array
+      let commentIndex = yComments.toArray().findIndex(c => {
         const cComment = toComment(c);
         return cComment.id === editingComment.id;
       });
-      if (index !== -1) {
-        const commentMap = yComments.get(index);
+  
+      if (commentIndex !== -1) {
+        const commentMap = yComments.get(commentIndex);
         commentMap.set('text', editingComment.text);
         commentMap.set('isEditing', false);
+      } else {
+        // If not found in main comments, search in replies
+        for (let i = 0; i < yComments.length; i++) {
+          const parent = yComments.get(i);
+          const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
+          
+          const replyIndex = replies.toArray().findIndex(r => {
+            const replyComment = toComment(r);
+            return replyComment.id === editingComment.id;
+          });
+  
+          if (replyIndex !== -1) {
+            const replyMap = replies.get(replyIndex);
+            replyMap.set('text', editingComment.text);
+            replyMap.set('isEditing', false);
+            break;
+          }
+        }
       }
     });
-
+  
     setEditingComment(null);
     if (provider) updateActiveComment(provider, null);
   };
@@ -316,12 +374,13 @@ function Comments() {
         </div>
 
         {showNotifications && (
-          <NotificationsPanel 
-            notifications={notifications}
-            onMarkAsRead={markNotificationAsRead}
-            onClearAll={clearAllNotifications}
-            onClose={() => setShowNotifications(false)}
-          />
+         <NotificationsPanel
+         notifications={notifications}
+        
+         onMarkAsRead={markNotificationAsRead}
+         onClearAll={clearAllNotifications}
+         onClose={() => setShowNotifications(false)}
+       />
         )}
 
         {!replyingTo && (
