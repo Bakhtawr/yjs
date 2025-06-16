@@ -35,14 +35,17 @@ const CommentList: React.FC<CommentListProps> = ({
   onStartEditing,
   onSaveEdit,
   onCancelEdit,
-  onReplyKeyPress, 
+  onReplyKeyPress,
 }) => {
   const renderComments = (commentsToRender: Comment[] = [], depth = 0, parentId?: string) => {
     return commentsToRender.map((comment) => {
+      if (!comment || !comment.id) return null;
+      
       const replies = Array.isArray(comment.replies) ? comment.replies : [];
       const isCurrentUser = comment.author.id === user.id;
       const isEditing = editingComment?.id === comment.id;
-      
+      const mentionedUsers = comment.mentions || [];
+
       return (
         <div 
           key={comment.id} 
@@ -53,12 +56,20 @@ const CommentList: React.FC<CommentListProps> = ({
           <div className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-2">
-                <div 
-                  className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-medium"
-                  style={{ backgroundColor: comment.author.color }}
-                >
-                  {comment.author.name.charAt(0).toUpperCase()}
-                </div>
+                {comment.author.avatar ? (
+                  <img 
+                    src={comment.author.avatar} 
+                    alt={comment.author.name}
+                    className="h-8 w-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <div 
+                    className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-medium"
+                    style={{ backgroundColor: comment.author.color }}
+                  >
+                    {comment.author.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div>
                   <h4 className="text-sm font-medium text-gray-900">
                     {comment.author.name}
@@ -126,12 +137,19 @@ const CommentList: React.FC<CommentListProps> = ({
                 </div>
               </div>
             ) : (
-              <p 
-                className="text-gray-700 pl-10"
-                dangerouslySetInnerHTML={{
-                  __html: highlightMentions(comment.text, comment.mentions || [], users)
-                }}
-              />
+              <div className="pl-10">
+                <p 
+                  className="text-gray-700"
+                  dangerouslySetInnerHTML={{
+                    __html: highlightMentions(comment.text, mentionedUsers, users)
+                  }}
+                />
+                {mentionedUsers.length > 0 && (
+                  <div className="mt-1 text-xs text-gray-500">
+                    Mentioned: {mentionedUsers.map(m => m.userName).join(', ')}
+                  </div>
+                )}
+              </div>
             )}
     
             <div className="flex items-center mt-3 pl-10">
@@ -162,7 +180,7 @@ const CommentList: React.FC<CommentListProps> = ({
                 <textarea
                   value={replyText}
                   onChange={onReplyChange}
-                  onKeyPress={onReplyKeyPress}  
+                  onKeyPress={onReplyKeyPress}
                   placeholder="Write your reply..."
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"

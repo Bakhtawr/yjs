@@ -6,14 +6,26 @@ interface NotificationsPanelProps {
   onMarkAsRead: (id: string) => void;
   onClearAll: () => void;
   onClose: () => void;
+  currentUserId: string; // Add this prop
 }
 
 const NotificationsPanel: React.FC<NotificationsPanelProps> = ({ 
   notifications, 
   onMarkAsRead,
   onClearAll,
-  onClose
+  onClose,
+  currentUserId // Destructure the prop
 }) => {
+  // STRICT FILTERING
+  const userNotifications = notifications.filter(n => 
+    n.recipientId === currentUserId && n.author.id !== currentUserId
+  );
+  const handleNotificationClick = (notification: Notification) => {
+    onMarkAsRead(notification.id);
+    // Add any navigation logic here if needed
+    console.log("Notification clicked:", notification);
+  };
+
   const getNotificationMessage = (notification: Notification) => {
     switch (notification.type) {
       case 'mention':
@@ -25,7 +37,7 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
     }
   };
 
-  const hasUnreadNotifications = notifications.some(n => !n.read);
+  const hasUnreadNotifications = userNotifications.some(n => !n.read);
 
   return (
     <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
@@ -48,44 +60,51 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
         </div>
       </div>
       <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-        {notifications.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">
-            No notifications
+      {userNotifications.map(notification => (
+      <div 
+        key={notification.id}
+        onClick={() => handleNotificationClick(notification)}
+        className={`p-4 hover:bg-gray-50 cursor-pointer ${!notification.read ? 'bg-blue-50' : ''}`}
+      >
+        {/* Notification content */}
+        <div className="flex items-start">
+          {/* Avatar */}
+          <div 
+            className="h-8 w-8 rounded-full flex items-center justify-center text-white font-medium mr-3"
+            style={{ backgroundColor: notification.author.color }}
+          >
+            {notification.author.name.charAt(0).toUpperCase()}
           </div>
-        ) : (
-          notifications.map(notification => (
-            <div 
-              key={notification.id} 
-              className={`p-4 hover:bg-gray-50 cursor-pointer ${!notification.read ? 'bg-blue-50' : ''}`}
-              onClick={() => onMarkAsRead(notification.id)}
-            >
-              <div className="flex items-start">
-                <div 
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-white font-medium mr-3"
-                  style={{ backgroundColor: notification.author.color }}
-                >
-                  {notification.author.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">
-                    {getNotificationMessage(notification)}
-                  </p>
-                  {notification.content && (
-                    <p className="text-sm text-gray-500 mt-1 truncate">
-                      {notification.content}
-                    </p>
-                  )}
-                  <p className="text-xs text-gray-400 mt-1">
-                    {new Date(notification.timestamp).toLocaleTimeString()}
-                  </p>
-                </div>
-                {!notification.read && (
-                  <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
-                )}
-              </div>
-            </div>
-          ))
-        )}
+          
+          {/* Message and content */}
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">
+              {getNotificationMessage(notification)}
+            </p>
+            
+            {/* Ensure content exists */}
+            {notification.content ? (
+              <p className="text-sm text-gray-500 mt-1 truncate">
+                {notification.content}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-400 mt-1 italic">
+                No preview available
+              </p>
+            )}
+            
+            <p className="text-xs text-gray-400 mt-1">
+              {new Date(notification.timestamp).toLocaleString()}
+            </p>
+          </div>
+          
+          {/* Unread indicator */}
+          {!notification.read && (
+            <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+          )}
+        </div>
+      </div>
+    ))}
       </div>
     </div>
   );

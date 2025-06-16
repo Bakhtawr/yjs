@@ -9,6 +9,7 @@ export interface User {
 }
 
 export interface Mention {
+  userName: any;
   userId: string;
   position: number;
   length: number;
@@ -28,7 +29,7 @@ export const ydoc = new Y.Doc();
 export const yComments = ydoc.getArray<Y.Map<any>>('comments');
 export const yUsers = ydoc.getMap<User>('users');
 
-export const setupWebsocketProvider = (roomName: string) => {
+export const setupWebsocketProvider = (ydoc: Y.Doc, _user: User, roomName: string) => {
   const provider = new WebsocketProvider(
     'wss://yjs-server.onrender.com', 
     roomName,
@@ -87,5 +88,25 @@ export const createYComment = (
   yComment.set('replies', new Y.Array());
   yComment.set('isEditing', isEditing);
   yComment.set('mentions', mentions);
+  return yComment;
+};
+
+
+
+export const createYCommentFromJSON = (comment: Comment): Y.Map<any> => {
+  const yComment = new Y.Map();
+  yComment.set('text', comment.text);
+  yComment.set('author', comment.author);
+  yComment.set('timestamp', comment.timestamp);
+  yComment.set('id', comment.id);
+  yComment.set('isEditing', comment.isEditing || false);
+  yComment.set('mentions', comment.mentions || []);
+
+  const repliesArray = new Y.Array<Y.Map<any>>();
+  comment.replies?.forEach(reply => {
+    repliesArray.push([createYCommentFromJSON(reply)]);
+  });
+
+  yComment.set('replies', repliesArray);
   return yComment;
 };

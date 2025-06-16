@@ -1,23 +1,22 @@
-import React, { useState, useEffect } from 'react';
 import * as Y from 'yjs';
-import { ydoc, yComments, yUsers, toComment, createYComment, type User, type Comment } from '../../yjsSetup';
+import { useState, useEffect } from 'react';
+import { ydoc, yComments, toComment, createYComment, type User, type Comment, createYCommentFromJSON } from '../../yjsSetup';
 import { setupWebsocketProvider } from '../../yjsSetup';
 import { findComment } from '../../utils/commentUtils';
 import { setupUserPresence, getActiveUsers, updateCursorPosition, updateActiveComment } from '../../utils/presenceUtils';
-import { findMentions } from '../../utils/mentionUtils';
 import { checkForMentions, checkForReplies, type Notification } from '../../utils/notificationUtils';
 import CommentList from './commentlist';
 import PresenceIndicator from './PresenceIndicator';
 import NotificationsPanel from './NotificationsPanel';
+import { useAuth } from '../../contexts/AuthContext';
+import { generateColorFromUID } from '../../utils/authUtils';
+import { loadCommentsFromFirestore, saveCommentsToFirestore } from '../../utils/firestoreUtils';
 
 function Comments() {
+  const { currentUser, loginWithGoogle } = useAuth();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
-  const [user] = useState<User>({
-    id: `user-${Math.floor(Math.random() * 10000)}`,
-    name: `User${Math.floor(Math.random() * 1000)}`,
-    color: `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`
-  });
+  const [user, setUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -28,55 +27,73 @@ function Comments() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [provider, setProvider] = useState<any>(null);
 
-  // Initialize YJS provider
+  // Initialize user from Firebase auth
   useEffect(() => {
-    const newProvider = setupWebsocketProvider('comment-room-yjs');
-    setProvider(newProvider);
-    
-    // Register current user
-    yUsers.set(user.id, user);
-    
-    // Setup presence
-    const cleanupPresence = setupUserPresence(newProvider, user);
-    
-    // Load initial comments
-    setComments(yComments.toArray().map(toComment));
-    
-    // Load initial users
-    setUsers(Array.from(yUsers.values()));
-    
-    const updateComments = () => setComments(yComments.toArray().map(toComment));
-    const updateUsers = () => setUsers(Array.from(yUsers.values()));
-    
-    yComments.observeDeep(updateComments);
-    yUsers.observe(updateUsers);
-    
-    newProvider.on('status', (event: { status: string }) => {
-      setIsConnected(event.status === 'connected');
-      if (event.status === 'disconnected') {
-        setError('Connection lost. Trying to reconnect...');
-      } else if (event.status === 'connected') {
-        setError(null);
+    if (currentUser) {
+      const userData: User = {
+        id: currentUser.uid,
+        name: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
+        color: generateColorFromUID(currentUser.uid),
+        avatar: currentUser.photoURL || undefined
+      };
+      setUser(userData);
+    }
+  }, [currentUser]);
+
+  // Initialize YJS provider and setup presence
+  useEffect(() => {
+    if (!user) return;
+
+    const setup = async () => {
+      try {
+        const savedComments = await loadCommentsFromFirestore('comment-room-yjs');
+        ydoc.transact(() => {
+          yComments.delete(0, yComments.length);
+          savedComments.forEach((c: any) => {
+            yComments.push([createYCommentFromJSON(c)]);
+          });
+        });
+
+        const wsProvider = setupWebsocketProvider(ydoc, user, 'comment-room-yjs');
+        setProvider(wsProvider);
+        setupUserPresence(wsProvider, user);
+
+        wsProvider.on('status', (event: { status: string }) => {
+          setIsConnected(event.status === 'connected');
+        });
+
+        // Observe comments changes
+        const observer = () => {
+          setComments(yComments.toArray().map(toComment));
+        };
+
+        yComments.observe(observer);
+        return () => yComments.unobserve(observer);
+      } catch (err) {
+        setError('Failed to initialize connection. Please refresh the page.');
+        console.error('Initialization error:', err);
       }
-    });
-    
-    newProvider.on('error', (error: Error) => {
-      setError(`Connection error: ${error.message}`);
-    });
-    
-    return () => {
-      yComments.unobserveDeep(updateComments);
-      yUsers.unobserve(updateUsers);
-      newProvider.off('status');
-      newProvider.off('error');
-      cleanupPresence();
-      newProvider.destroy();
     };
-  }, [user.id]);
+
+    setup();
+  }, [user]);
+
+  // Persist comments to Firestore
+  useEffect(() => {
+    if (!provider) return;
+  
+    const persist = () => {
+      const data = yComments.toArray().map((c) => c.toJSON());
+      saveCommentsToFirestore('comment-room-yjs', data);
+    };
+  
+    yComments.observeDeep(persist);
+    return () => yComments.unobserveDeep(persist);
+  }, [provider]);
 
   // Update active users list
   useEffect(() => {
-    if (!provider) return;
+    if (!provider || !user) return;
     
     const handleAwarenessChange = () => {
       setUsers(getActiveUsers(provider));
@@ -84,20 +101,50 @@ function Comments() {
     
     provider.awareness.on('change', handleAwarenessChange);
     return () => provider.awareness.off('change', handleAwarenessChange);
-  }, [provider]);
+  }, [provider, user]);
+
+  const handleMainCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setNewComment(value);
+    
+    // Update cursor position for presence
+    if (provider) {
+      updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
+    }
+  };
+
+  const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setReplyText(e.target.value);
+    
+    // Update cursor position for presence
+    if (provider) {
+      updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
+    }
+  };
+
+  const handleMainCommentKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!replyingTo) {
+        addComment();
+      }
+    }
+  };
+
+  const handleReplyKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      addComment();
+    }
+  };
 
   const addComment = () => {
+    if (!user) return;
+    
     const text = replyingTo ? replyText.trim() : newComment.trim();
     if (!text) return;
     
-    // Find mentions in the text
-    const mentions = findMentions(text, users);
-    
-    const yComment = createYComment(
-      text,
-      user,
-      mentions
-    );
+    const yComment = createYComment(text, user);
     
     ydoc.transact(() => {
       if (replyingTo) {
@@ -121,8 +168,7 @@ function Comments() {
               notifications
             ).map(notification => ({
               ...notification,
-              // Ensure recipient is set to parent comment author
-              recipientId: parentComment.author.id
+              recipientId: parentComment.author.id 
             }));
             
             setNotifications(prev => [...prev, ...replyNotifications]);
@@ -139,13 +185,11 @@ function Comments() {
         users,
         notifications
       ).map(notification => {
-        // Find the specific mention that triggered this notification
         const mention = yComment.get('mentions').find((m: any) => 
           notification.content === yComment.get('text').substring(m.position, m.position + m.length)
         );
         return {
           ...notification,
-          // Ensure recipient is set to mentioned user
           recipientId: mention.userId
         };
       });
@@ -163,6 +207,8 @@ function Comments() {
   };
 
   const startEditing = (comment: Comment) => {
+    if (!user || comment.author.id !== user.id) return;
+    
     setEditingComment({ id: comment.id, text: comment.text });
     if (provider) updateActiveComment(provider, comment.id);
     
@@ -198,7 +244,7 @@ function Comments() {
   };
 
   const saveEdit = () => {
-    if (!editingComment) return;
+    if (!editingComment || !user) return;
   
     ydoc.transact(() => {
       // Find the comment in the main comments array
@@ -211,6 +257,7 @@ function Comments() {
         const commentMap = yComments.get(commentIndex);
         commentMap.set('text', editingComment.text);
         commentMap.set('isEditing', false);
+        commentMap.set('updatedAt', new Date().toISOString());
       } else {
         // If not found in main comments, search in replies
         for (let i = 0; i < yComments.length; i++) {
@@ -226,6 +273,7 @@ function Comments() {
             const replyMap = replies.get(replyIndex);
             replyMap.set('text', editingComment.text);
             replyMap.set('isEditing', false);
+            replyMap.set('updatedAt', new Date().toISOString());
             break;
           }
         }
@@ -254,64 +302,37 @@ function Comments() {
   };
 
   const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
-    ydoc.transact(() => {
-      if (isReply && parentId) {
-        const parentIndex = yComments.toArray().findIndex(c => {
-          const cComment = toComment(c);
-          return cComment.id === parentId;
-        });
-        if (parentIndex !== -1) {
-          const parent = yComments.get(parentIndex);
-          const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
-          const replyIndex = replies.toArray().findIndex(r => toComment(r).id === id);
-          if (replyIndex !== -1) {
-            replies.delete(replyIndex, 1);
+    if (!user) return;
+    
+    // First find the comment to verify ownership
+    const comment = findComment(id, comments);
+    if (!comment || comment.author.id !== user.id) return;
+    
+    if (window.confirm('Are you sure you want to delete this comment?')) {
+      ydoc.transact(() => {
+        if (isReply && parentId) {
+          const parentIndex = yComments.toArray().findIndex(c => {
+            const cComment = toComment(c);
+            return cComment.id === parentId;
+          });
+          if (parentIndex !== -1) {
+            const parent = yComments.get(parentIndex);
+            const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
+            const replyIndex = replies.toArray().findIndex(r => toComment(r).id === id);
+            if (replyIndex !== -1) {
+              replies.delete(replyIndex, 1);
+            }
+          }
+        } else {
+          const index = yComments.toArray().findIndex(c => {
+            const cComment = toComment(c);
+            return cComment.id === id;
+          });
+          if (index !== -1) {
+            yComments.delete(index, 1);
           }
         }
-      } else {
-        const index = yComments.toArray().findIndex(c => {
-          const cComment = toComment(c);
-          return cComment.id === id;
-        });
-        if (index !== -1) {
-          yComments.delete(index, 1);
-        }
-      }
-    });
-  };
-
-  const handleMainCommentKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (!replyingTo) {
-        addComment();
-      }
-    }
-  };
-
-  const handleReplyKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      addComment();
-    }
-  };
-
-  const handleMainCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setNewComment(value);
-    
-    // Update cursor position for presence
-    if (provider) {
-      updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
-    }
-  };
-
-  const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setReplyText(e.target.value);
-    
-    // Update cursor position for presence
-    if (provider) {
-      updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
+      });
     }
   };
 
@@ -324,6 +345,23 @@ function Comments() {
   const clearAllNotifications = () => {
     setNotifications(notifications.map(n => ({ ...n, read: true })));
   };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md text-center">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Please sign in to participate in the discussion</h2>
+          <p className="text-gray-600 mb-6">You need to be authenticated to view and post comments.</p>
+          <button
+            onClick={loginWithGoogle}
+            className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (
@@ -364,9 +402,9 @@ function Comments() {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
-              {notifications.filter(n => !n.read).length > 0 && (
+              {notifications.filter(n => !n.read && n.recipientId === user.id).length > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                  {notifications.filter(n => !n.read).length}
+                  {notifications.filter(n => !n.read && n.recipientId === user.id).length}
                 </span>
               )}
             </button>
@@ -374,13 +412,13 @@ function Comments() {
         </div>
 
         {showNotifications && (
-         <NotificationsPanel
-         notifications={notifications}
-        
-         onMarkAsRead={markNotificationAsRead}
-         onClearAll={clearAllNotifications}
-         onClose={() => setShowNotifications(false)}
-       />
+          <NotificationsPanel
+            notifications={notifications.filter(n => n.recipientId === user.id)}
+            onMarkAsRead={markNotificationAsRead}
+            onClearAll={clearAllNotifications}
+            onClose={() => setShowNotifications(false)}
+            currentUserId={user.id}
+          />
         )}
 
         {!replyingTo && (
@@ -423,22 +461,22 @@ function Comments() {
             </div>
           ) : (
             <CommentList
-              comments={comments}
-              user={user}
-              users={users}
-              replyingTo={replyingTo}
-              setReplyingTo={setReplyingTo}
-              replyText={replyText}
-              onReplyChange={handleReplyChange}
-              onReplyKeyPress={handleReplyKeyPress}
-              editingComment={editingComment}
-              setEditingComment={setEditingComment}
-              onAddComment={addComment}
-              onDeleteComment={deleteComment}
-              onStartEditing={startEditing}
-              onSaveEdit={saveEdit}
-              onCancelEdit={cancelEdit}
-            />
+            comments={comments}
+            user={user}
+            users={users}
+            replyingTo={replyingTo}
+            setReplyingTo={setReplyingTo}
+            replyText={replyText}
+            onReplyChange={handleReplyChange}
+            onReplyKeyPress={handleReplyKeyPress}
+            editingComment={editingComment}
+            setEditingComment={setEditingComment}
+            onAddComment={addComment}
+            onDeleteComment={deleteComment}
+            onStartEditing={startEditing}
+            onSaveEdit={saveEdit}
+            onCancelEdit={cancelEdit}
+          />
           )}
         </div>
       </div>

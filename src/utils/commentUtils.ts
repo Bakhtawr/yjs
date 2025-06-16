@@ -9,7 +9,9 @@ import type { Comment } from '../yjsSetup';
 export const findComment = (
   id: string, 
   commentList: Comment[]
-): {comment: Comment, parent?: Comment, isReply: boolean} | null => {
+): {
+  author: any;comment: Comment, parent?: Comment, isReply: boolean
+} | null => {
   for (const comment of commentList) {
     if (comment.id === id) {
       return { comment, isReply: false };
