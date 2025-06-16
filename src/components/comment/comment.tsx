@@ -21,9 +21,7 @@ interface Comment {
 
 const yComments = ydoc.getArray<Y.Map<any>>('comments');
 
-// Helper function to safely convert Y.Map or plain object to Comment
 const toComment = (item: Y.Map<any> | any): Comment => {
-  // If it's a Y.Map, use get() methods
   if (item instanceof Y.Map) {
     return {
       text: item.get('text'),
@@ -34,7 +32,6 @@ const toComment = (item: Y.Map<any> | any): Comment => {
       isEditing: item.get('isEditing') || false,
     };
   }
-  // If it's a plain object (might happen after loading from storage)
   return {
     text: item.text,
     author: item.author,
@@ -183,11 +180,21 @@ function Comments() {
     });
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleMainCommentKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      addComment();
+      if (!replyingTo) {
+        addComment();
+      }
     }
+  };
+
+  const handleMainCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setNewComment(e.target.value);
+  };
+
+  const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setReplyText(e.target.value);
   };
 
   useEffect(() => {
@@ -253,42 +260,34 @@ function Comments() {
           </span>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-200 hover:shadow-md">
-          <div className="p-1">
-            <textarea
-              value={replyingTo ? replyText : newComment}
-              onChange={(e) => replyingTo ? setReplyText(e.target.value) : setNewComment(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={replyingTo ? "Write your reply..." : "Share your thoughts..."}
-              rows={3}
-              className="w-full px-4 py-3 focus:outline-none resize-none"
-            />
-          </div>
-          <div className="flex justify-between items-center bg-gray-50 px-4 py-2 border-t border-gray-200">
-            {replyingTo && (
-              <button
-                onClick={() => setReplyingTo(null)}
-                className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
-              >
-                Cancel reply
-              </button>
-            )}
-            {!replyingTo && (
+        {!replyingTo && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-200 hover:shadow-md">
+            <div className="p-1">
+              <textarea
+                value={newComment}
+                onChange={handleMainCommentChange}
+                onKeyPress={handleMainCommentKeyPress}
+                placeholder="Share your thoughts..."
+                rows={3}
+                className="w-full px-4 py-3 focus:outline-none resize-none"
+              />
+            </div>
+            <div className="flex justify-between items-center bg-gray-50 px-4 py-2 border-t border-gray-200">
               <span className="text-xs text-gray-500">Press Enter to post</span>
-            )}
-            <button
-              onClick={addComment}
-              disabled={!(replyingTo ? replyText.trim() : newComment.trim())}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                (replyingTo ? replyText.trim() : newComment.trim())
-                  ? 'bg-blue-600 text-white shadow hover:bg-blue-700 hover:shadow-md' 
-                  : 'bg-gray-200 text-black cursor-not-allowed'
-              }`}
-            >
-              {replyingTo ? 'Post Reply' : 'Post Comment'}
-            </button>
+              <button
+                onClick={addComment}
+                disabled={!newComment.trim()}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                  newComment.trim()
+                    ? 'bg-blue-600 text-white shadow hover:bg-blue-700 hover:shadow-md' 
+                    : 'bg-gray-200 text-black cursor-not-allowed'
+                }`}
+              >
+                Post Comment
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="space-y-4">
           {comments.length === 0 ? (
@@ -306,7 +305,7 @@ function Comments() {
               replyingTo={replyingTo}
               setReplyingTo={setReplyingTo}
               replyText={replyText}
-              setReplyText={setReplyText}
+              onReplyChange={handleReplyChange}
               editingComment={editingComment}
               setEditingComment={setEditingComment}
               onAddComment={addComment}

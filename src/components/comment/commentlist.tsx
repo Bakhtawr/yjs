@@ -15,14 +15,14 @@ interface CommentListProps {
   replyingTo: string | null;
   setReplyingTo: (id: string | null) => void;
   replyText: string;
-  setReplyText: (text: string) => void;
+  onReplyChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   editingComment: {id: string, text: string} | null;
   setEditingComment: (comment: {id: string, text: string} | null) => void;
   onAddComment: () => void;
   onDeleteComment: (id: string, isReply: boolean, parentId?: string) => void;
-  onStartEditing: (comment: Comment, isReply: boolean, parentId?: string) => void;
-  onSaveEdit: (isReply: boolean, parentId?: string) => void;
-  onCancelEdit: (isReply: boolean, parentId?: string) => void;
+  onStartEditing: (comment: Comment) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
 }
 
 const CommentList: React.FC<CommentListProps> = ({
@@ -31,7 +31,7 @@ const CommentList: React.FC<CommentListProps> = ({
   replyingTo,
   setReplyingTo,
   replyText,
-  setReplyText,
+  onReplyChange,
   editingComment,
   setEditingComment,
   onAddComment,
@@ -44,6 +44,7 @@ const CommentList: React.FC<CommentListProps> = ({
     return commentsToRender.map((comment) => {
       const replies = Array.isArray(comment.replies) ? comment.replies : [];
       const isCurrentUser = comment.author === user;
+      const isEditing = editingComment?.id === comment.id;
       
       return (
         <div 
@@ -71,10 +72,10 @@ const CommentList: React.FC<CommentListProps> = ({
                 </div>
               </div>
               
-              {isCurrentUser && !comment.isEditing && (
+              {isCurrentUser && !isEditing && (
                 <div className="flex space-x-2">
                   <button
-                    onClick={() => onStartEditing(comment, depth > 0, parentId)}
+                    onClick={() => onStartEditing(comment)}
                     className="text-xs text-gray-500 hover:text-blue-600 transition-colors"
                     title="Edit"
                   >
@@ -95,7 +96,7 @@ const CommentList: React.FC<CommentListProps> = ({
               )}
             </div>
             
-            {comment.isEditing ? (
+            {isEditing ? (
               <div className="pl-10">
                 <textarea
                   value={editingComment?.text || ''}
@@ -106,13 +107,13 @@ const CommentList: React.FC<CommentListProps> = ({
                 />
                 <div className="flex justify-end space-x-2 mt-2">
                   <button
-                    onClick={() => onCancelEdit(depth > 0, parentId)}
+                    onClick={onCancelEdit}
                     className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={() => onSaveEdit(depth > 0, parentId)}
+                    onClick={onSaveEdit}
                     disabled={!editingComment?.text.trim()}
                     className={`px-3 py-1 rounded-md text-sm font-medium ${
                       editingComment?.text.trim() 
@@ -155,7 +156,7 @@ const CommentList: React.FC<CommentListProps> = ({
               <div className="mt-3 pl-10">
                 <textarea
                   value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
+                  onChange={onReplyChange}
                   placeholder="Write your reply..."
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
