@@ -1,17 +1,11 @@
 import React from 'react';
-
-interface Comment {
-  text: string;
-  author: string;
-  timestamp: string;
-  id: string;
-  replies: Comment[];
-  isEditing?: boolean;
-}
+import type { Comment, User } from '../../yjsSetup';
+import { highlightMentions } from '../../utils/mentionUtils';
 
 interface CommentListProps {
   comments: Comment[];
-  user: string;
+  user: User;
+  users: User[];
   replyingTo: string | null;
   setReplyingTo: (id: string | null) => void;
   replyText: string;
@@ -23,11 +17,13 @@ interface CommentListProps {
   onStartEditing: (comment: Comment) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
+  onReplyKeyPress: (e: React.KeyboardEvent) => void;
 }
 
 const CommentList: React.FC<CommentListProps> = ({
   comments,
   user,
+  users,
   replyingTo,
   setReplyingTo,
   replyText,
@@ -38,12 +34,13 @@ const CommentList: React.FC<CommentListProps> = ({
   onDeleteComment,
   onStartEditing,
   onSaveEdit,
-  onCancelEdit
+  onCancelEdit,
+  onReplyKeyPress, 
 }) => {
   const renderComments = (commentsToRender: Comment[] = [], depth = 0, parentId?: string) => {
     return commentsToRender.map((comment) => {
       const replies = Array.isArray(comment.replies) ? comment.replies : [];
-      const isCurrentUser = comment.author === user;
+      const isCurrentUser = comment.author.id === user.id;
       const isEditing = editingComment?.id === comment.id;
       
       return (
@@ -56,19 +53,22 @@ const CommentList: React.FC<CommentListProps> = ({
           <div className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center space-x-2">
-                <div className="flex-shrink-0">
-                  <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-medium">
-                    {comment.author.charAt(0).toUpperCase()}
-                  </div>
+                <div 
+                  className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white font-medium"
+                  style={{ backgroundColor: comment.author.color }}
+                >
+                  {comment.author.name.charAt(0).toUpperCase()}
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-gray-900">
-                    {comment.author}
+                    {comment.author.name}
                     {isCurrentUser && (
                       <span className="ml-1 text-xs text-blue-600">(you)</span>
                     )}
                   </h4>
-                  <span className="text-xs text-gray-500">{comment.timestamp}</span>
+                  <span className="text-xs text-gray-500">
+                    {new Date(comment.timestamp).toLocaleString()}
+                  </span>
                 </div>
               </div>
               
@@ -126,7 +126,12 @@ const CommentList: React.FC<CommentListProps> = ({
                 </div>
               </div>
             ) : (
-              <p className="text-gray-700 pl-10">{comment.text}</p>
+              <p 
+                className="text-gray-700 pl-10"
+                dangerouslySetInnerHTML={{
+                  __html: highlightMentions(comment.text, comment.mentions || [], users)
+                }}
+              />
             )}
     
             <div className="flex items-center mt-3 pl-10">
@@ -157,6 +162,7 @@ const CommentList: React.FC<CommentListProps> = ({
                 <textarea
                   value={replyText}
                   onChange={onReplyChange}
+                  onKeyPress={onReplyKeyPress}  
                   placeholder="Write your reply..."
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
