@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import CommentList from './commentlist';
@@ -6,7 +6,7 @@ import CommentList from './commentlist';
 const ydoc = new Y.Doc();
 const provider = new WebsocketProvider(
   'wss://yjs-server.onrender.com', 
-  'new-channel-name',
+  'yjs-channel-name',
   ydoc
 );
 
@@ -19,7 +19,31 @@ interface Comment {
   isEditing?: boolean;
 }
 
-const yComments = ydoc.getArray<Comment>('comments');
+const yComments = ydoc.getArray<Y.Map<any>>('comments');
+
+// Helper function to safely convert Y.Map or plain object to Comment
+const toComment = (item: Y.Map<any> | any): Comment => {
+  // If it's a Y.Map, use get() methods
+  if (item instanceof Y.Map) {
+    return {
+      text: item.get('text'),
+      author: item.get('author'),
+      timestamp: item.get('timestamp'),
+      id: item.get('id'),
+      replies: (item.get('replies') as Y.Array<Y.Map<any>>)?.toArray().map(toComment) || [],
+      isEditing: item.get('isEditing') || false,
+    };
+  }
+  // If it's a plain object (might happen after loading from storage)
+  return {
+    text: item.text,
+    author: item.author,
+    timestamp: item.timestamp,
+    id: item.id,
+    replies: item.replies?.map(toComment) || [],
+    isEditing: item.isEditing || false,
+  };
+};
 
 function Comments() {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -31,7 +55,7 @@ function Comments() {
   const [replyText, setReplyText] = useState<string>('');
   const [editingComment, setEditingComment] = useState<{id: string, text: string} | null>(null);
 
-  const findComment = (id: string, commentList: Comment[]): {comment: Comment, parent?: Comment, isReply: boolean} | null => {
+  const findComment = useCallback((id: string, commentList: Comment[]): {comment: Comment, parent?: Comment, isReply: boolean} | null => {
     for (const comment of commentList) {
       if (comment.id === id) {
         return { comment, isReply: false };
@@ -46,30 +70,36 @@ function Comments() {
       }
     }
     return null;
-  };
+  }, []);
 
   const addComment = () => {
-    if (!newComment.trim() && !replyText.trim()) return;
+    const text = replyingTo ? replyText.trim() : newComment.trim();
+    if (!text) return;
   
-    const newEntry: Comment = {
-      text: replyingTo ? replyText : newComment,
-      author: user,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      id: Date.now().toString(),
-      replies: [],
-    };
+    const yComment = new Y.Map();
+    yComment.set('text', text);
+    yComment.set('author', user);
+    yComment.set('timestamp', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    yComment.set('id', Date.now().toString());
+    yComment.set('replies', new Y.Array());
+    yComment.set('isEditing', false);
   
     ydoc.transact(() => {
       if (replyingTo) {
-        const found = findComment(replyingTo, yComments.toArray());
+        const found = findComment(replyingTo, yComments.toArray().map(toComment));
         if (found) {
-          if (!found.comment.replies) {
-            found.comment.replies = [];
+          const parentIndex = yComments.toArray().findIndex(c => {
+            const comment = toComment(c);
+            return comment.id === replyingTo;
+          });
+          if (parentIndex !== -1) {
+            const parent = yComments.get(parentIndex);
+            const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
+            replies.push([yComment]);
           }
-          found.comment.replies.push(newEntry);
         }
       } else {
-        yComments.push([newEntry]);
+        yComments.push([yComment]);
       }
     });
   
@@ -78,64 +108,80 @@ function Comments() {
     setNewComment('');
   };
 
-  const startEditing = (comment: Comment, _isReply: boolean = false) => {
-    const found = findComment(comment.id, yComments.toArray());
-    if (found) {
-      ydoc.transact(() => {
-        found.comment.isEditing = true;
+  const startEditing = (comment: Comment) => {
+    setEditingComment({ id: comment.id, text: comment.text });
+    ydoc.transact(() => {
+      const index = yComments.toArray().findIndex(c => {
+        const cComment = toComment(c);
+        return cComment.id === comment.id;
       });
-      setEditingComment({ id: comment.id, text: comment.text });
-    }
+      if (index !== -1) {
+        const commentMap = yComments.get(index);
+        commentMap.set('isEditing', true);
+      }
+    });
   };
 
-  const saveEdit = (_isReply: boolean = false) => {
+  const saveEdit = () => {
     if (!editingComment) return;
 
-    const found = findComment(editingComment.id, yComments.toArray());
-    if (found) {
-      ydoc.transact(() => {
-        found.comment.text = editingComment.text;
-        found.comment.isEditing = false;
+    ydoc.transact(() => {
+      const index = yComments.toArray().findIndex(c => {
+        const cComment = toComment(c);
+        return cComment.id === editingComment.id;
       });
-    }
+      if (index !== -1) {
+        const commentMap = yComments.get(index);
+        commentMap.set('text', editingComment.text);
+        commentMap.set('isEditing', false);
+      }
+    });
 
     setEditingComment(null);
   };
 
-  const cancelEdit = (_isReply: boolean = false, _parentId?: string) => {
-    const found = findComment(editingComment?.id || '', yComments.toArray());
-    if (found) {
-      ydoc.transact(() => {
-        found.comment.isEditing = false;
-      });
-    }
+  const cancelEdit = () => {
+    ydoc.transact(() => {
+      if (editingComment) {
+        const index = yComments.toArray().findIndex(c => {
+          const cComment = toComment(c);
+          return cComment.id === editingComment.id;
+        });
+        if (index !== -1) {
+          const commentMap = yComments.get(index);
+          commentMap.set('isEditing', false);
+        }
+      }
+    });
     setEditingComment(null);
   };
 
   const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
     ydoc.transact(() => {
       if (isReply && parentId) {
-        const parentIndex = yComments.toArray().findIndex(c => c.id === parentId);
+        const parentIndex = yComments.toArray().findIndex(c => {
+          const cComment = toComment(c);
+          return cComment.id === parentId;
+        });
         if (parentIndex !== -1) {
-          const parentComment = yComments.get(parentIndex);
-          const replyIndex = parentComment.replies.findIndex(reply => reply.id === id);
-  
+          const parent = yComments.get(parentIndex);
+          const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
+          const replyIndex = replies.toArray().findIndex(r => toComment(r).id === id);
           if (replyIndex !== -1) {
-            parentComment.replies.splice(replyIndex, 1); // Correctly remove reply
+            replies.delete(replyIndex, 1);
           }
         }
       } else {
-        const index = yComments.toArray().findIndex(c => c.id === id);
+        const index = yComments.toArray().findIndex(c => {
+          const cComment = toComment(c);
+          return cComment.id === id;
+        });
         if (index !== -1) {
-          yComments.delete(index, 1); // Delete comment properly
+          yComments.delete(index, 1);
         }
       }
     });
-  
-    // Force UI to update
-    setComments([...yComments.toArray()]);
   };
-  
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -146,22 +192,31 @@ function Comments() {
 
   useEffect(() => {
     const updateComments = () => {
-      setComments([...yComments.toArray()]); // Refresh state on changes
+      setComments(yComments.toArray().map(toComment));
     };
   
-    yComments.observeDeep(updateComments); // Observe deeply for nested changes
+    yComments.observeDeep(updateComments);
     updateComments();
   
     provider.on('status', (event: { status: string }) => {
       setIsConnected(event.status === 'connected');
+      if (event.status === 'disconnected') {
+        setError('Connection lost. Trying to reconnect...');
+      } else if (event.status === 'connected') {
+        setError(null);
+      }
+    });
+  
+    provider.on('error', (error: Error) => {
+      setError(`Connection error: ${error.message}`);
     });
   
     return () => {
       yComments.unobserveDeep(updateComments);
       provider.off('status');
+      provider.off('error');
     };
   }, []);
-  
 
   if (error) {
     return (
@@ -201,8 +256,8 @@ function Comments() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-200 hover:shadow-md">
           <div className="p-1">
             <textarea
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
+              value={replyingTo ? replyText : newComment}
+              onChange={(e) => replyingTo ? setReplyText(e.target.value) : setNewComment(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder={replyingTo ? "Write your reply..." : "Share your thoughts..."}
               rows={3}
@@ -223,9 +278,9 @@ function Comments() {
             )}
             <button
               onClick={addComment}
-              disabled={!newComment.trim()}
+              disabled={!(replyingTo ? replyText.trim() : newComment.trim())}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                newComment.trim() 
+                (replyingTo ? replyText.trim() : newComment.trim())
                   ? 'bg-blue-600 text-white shadow hover:bg-blue-700 hover:shadow-md' 
                   : 'bg-gray-200 text-black cursor-not-allowed'
               }`}
