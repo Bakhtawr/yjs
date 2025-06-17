@@ -1,30 +1,77 @@
-import * as Y from 'yjs';
 import { useState, useEffect, useCallback } from 'react';
-import { ydoc, yComments, toComment, createYComment, type User, type Comment } from '../../yjsSetup';
-import { setupWebsocketProvider } from '../../yjsSetup';
-import { findComment } from '../../utils/comments/commentUtils';
-import { setupUserPresence, getActiveUsers, updateCursorPosition, updateActiveComment } from '../../utils/yjs/presenceUtils';
-import { checkForMentions, checkForReplies, type Notification } from '../../utils/yjs/notificationUtils';
+import { useAuth } from '../../contexts/AuthContext';
+import { generateColorFromUID } from '../../utils/auth/authUtils';
+import { useCommentsSetup } from '../../hooks/useCommentsSetup';
+import { useCommentActions } from '../../hooks/useCommentActions';
+
 import CommentList from './commentlist';
 import PresenceIndicator from './PresenceIndicator';
 import NotificationsPanel from './NotificationsPanel';
-import { useAuth } from '../../contexts/AuthContext';
-import { generateColorFromUID } from '../../utils/auth/authUtils';
+import type { User } from '../../yjsSetup';
+import { updateCursorPosition } from '../../utils/yjs/presenceUtils'; 
+
+import CommentInput from './commentInput';
+
+// types.ts
+export interface Comment {
+  id: string;
+  text: string;
+  author: User;
+  timestamp: string;
+  replies?: Comment[];
+  isEditing?: boolean;
+  updatedAt?: string;
+  mentions?: { userId: string; userName: string }[];
+}
+
+export type Notification = {
+  id: string;
+  type: "mention" | "reply";
+  commentId: string;
+  recipientId: string;
+  author: User;
+  read: boolean;
+  timestamp: string;
+};
+
 
 function Comments() {
   const { currentUser, loginWithGoogle } = useAuth();
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState('');
   const [user, setUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
+  const [newComment, setNewComment] = useState('');
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState<string>('');
-  const [editingComment, setEditingComment] = useState<{id: string, text: string} | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [provider, setProvider] = useState<any>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]); // Moved before useCommentActions
+
+  const {
+    comments,
+    users,
+    isConnected,
+    provider,
+    isProcessing,
+    setIsProcessing,
+  } = useCommentsSetup(user);
+
+  const {
+    addComment,
+    startEditing,
+    saveEdit,
+    cancelEdit,
+    deleteComment,
+    editingComment,
+    setEditingComment
+  } = useCommentActions(
+    user,
+    provider,
+    comments,
+    users,
+    notifications,
+    setNotifications,
+    setError,
+    setIsProcessing
+  );
 
   // Initialize user from Firebase auth
   useEffect(() => {
@@ -39,80 +86,18 @@ function Comments() {
     }
   }, [currentUser]);
 
-  // Update comments from YJS
-  const updateCommentsFromYjs = useCallback(() => {
-    const updatedComments = yComments.toArray().map(toComment);
-    console.log('Updating comments from YJS:', updatedComments);
-    setComments(updatedComments);
-  }, []);
-
-  // Initialize YJS provider and setup presence
-  useEffect(() => {
-    if (!user) return;
-
-    const setup = async () => {
-      try {
-        const wsProvider = setupWebsocketProvider(ydoc, user, 'comment-room-yjs');
-        setProvider(wsProvider);
-        setupUserPresence(wsProvider, user);
-
-        wsProvider.on('status', (event: { status: string }) => {
-          setIsConnected(event.status === 'connected');
-        });
-
-        // Initial load
-        updateCommentsFromYjs();
-
-        // Observe changes
-        yComments.observe(updateCommentsFromYjs);
-
-        return () => {
-          yComments.unobserve(updateCommentsFromYjs);
-          wsProvider?.destroy();
-        };
-      } catch (err) {
-        setError('Failed to initialize connection. Please refresh the page.');
-        console.error('Initialization error:', err);
-      }
-    };
-
-    setup();
-  }, [user, updateCommentsFromYjs]);
-
-  // Update active users list
-  useEffect(() => {
-    if (!provider || !user) return;
-    
-    const handleAwarenessChange = () => {
-      setUsers(getActiveUsers(provider));
-    };
-    
-    provider.awareness.on('change', handleAwarenessChange);
-    return () => provider.awareness.off('change', handleAwarenessChange);
-  }, [provider, user]);
-
-  const handleMainCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setNewComment(value);
-    
-    if (provider) {
-      updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
-    }
-  };
-
   const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setReplyText(e.target.value);
-    
-    if (provider) {
-      updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
-    }
+    if (provider) updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
   };
 
+  // Keyboard handlers
   const handleMainCommentKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!replyingTo) {
-        addComment();
+        addComment(newComment, null);
+        setNewComment('');
       }
     }
   };
@@ -120,217 +105,34 @@ function Comments() {
   const handleReplyKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      addComment();
+      addComment(replyText, replyingTo);
+      setReplyText('');
+      setReplyingTo(null);
     }
   };
 
-  const addComment = () => {
-    if (!user) return;
-    
-    const text = replyingTo ? replyText.trim() : newComment.trim();
-    if (!text) return;
-    
-    const yComment = createYComment(text, user);
-    
-    ydoc.transact(() => {
-      if (replyingTo) {
-        const parentIndex = yComments.toArray().findIndex(c => {
-          const comment = toComment(c);
-          return comment.id === replyingTo;
-        });
-        
-        if (parentIndex !== -1) {
-          const parent = yComments.get(parentIndex);
-          const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
-          replies.push([yComment]);
-          
-          // Check for reply notifications
-          const parentComment = toComment(parent);
-          const replyNotifications = checkForReplies(
-            toComment(yComment),
-            parentComment,
-            user,
-            notifications
-          ).map(notification => ({
-            ...notification,
-            recipientId: parentComment.author.id 
-          }));
-          
-          setNotifications(prev => [...prev, ...replyNotifications]);
-        }
-      } else {
-        yComments.push([yComment]);
-      }
-      
-      // Check for mention notifications
-      const mentionNotifications = checkForMentions(
-        toComment(yComment),
-        user,
-        users,
-        notifications
-      ).map(notification => {
-        const mention = yComment.get('mentions')?.find((m: any) =>
-          notification.content === yComment.get('text').substring(m.position, m.position + m.length)
-        );
-      
-        return {
-          ...notification,
-          recipientId: mention?.userId || notification.recipientId
-        };
-      });
-      
-      setNotifications(prev => [...prev, ...mentionNotifications]);
-    });
-    
-    setReplyText('');
-    setReplyingTo(null);
-    setNewComment('');
-    
-    if (provider) updateActiveComment(provider, null);
-  };
-
-  const startEditing = (comment: Comment) => {
-    if (!user || comment.author.id !== user.id) return;
-    
-    setEditingComment({ id: comment.id, text: comment.text });
-    if (provider) updateActiveComment(provider, comment.id);
-    
-    ydoc.transact(() => {
-      let commentIndex = yComments.toArray().findIndex(c => {
-        const cComment = toComment(c);
-        return cComment.id === comment.id;
-      });
-  
-      if (commentIndex !== -1) {
-        const commentMap = yComments.get(commentIndex);
-        commentMap.set('isEditing', true);
-      } else {
-        for (let i = 0; i < yComments.length; i++) {
-          const parent = yComments.get(i);
-          const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
-          
-          const replyIndex = replies.toArray().findIndex(r => {
-            const replyComment = toComment(r);
-            return replyComment.id === comment.id;
-          });
-  
-          if (replyIndex !== -1) {
-            const replyMap = replies.get(replyIndex);
-            replyMap.set('isEditing', true);
-            break;
-          }
-        }
-      }
-    });
-  };
-
-  const saveEdit = () => {
-    if (!editingComment || !user) return;
-  
-    ydoc.transact(() => {
-      let commentIndex = yComments.toArray().findIndex(c => {
-        const cComment = toComment(c);
-        return cComment.id === editingComment.id;
-      });
-  
-      if (commentIndex !== -1) {
-        const commentMap = yComments.get(commentIndex);
-        commentMap.set('text', editingComment.text);
-        commentMap.set('isEditing', false);
-        commentMap.set('updatedAt', new Date().toISOString());
-      } else {
-        for (let i = 0; i < yComments.length; i++) {
-          const parent = yComments.get(i);
-          const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
-          
-          const replyIndex = replies.toArray().findIndex(r => {
-            const replyComment = toComment(r);
-            return replyComment.id === editingComment.id;
-          });
-  
-          if (replyIndex !== -1) {
-            const replyMap = replies.get(replyIndex);
-            replyMap.set('text', editingComment.text);
-            replyMap.set('isEditing', false);
-            replyMap.set('updatedAt', new Date().toISOString());
-            break;
-          }
-        }
-      }
-    });
-  
-    setEditingComment(null);
-    if (provider) updateActiveComment(provider, null);
-  };
-
-  const cancelEdit = () => {
-    ydoc.transact(() => {
-      if (editingComment) {
-        const index = yComments.toArray().findIndex(c => {
-          const cComment = toComment(c);
-          return cComment.id === editingComment.id;
-        });
-        if (index !== -1) {
-          const commentMap = yComments.get(index);
-          commentMap.set('isEditing', false);
-        }
-      }
-    });
-    setEditingComment(null);
-    if (provider) updateActiveComment(provider, null);
-  };
-
-  const deleteComment = (id: string, isReply: boolean = false, parentId?: string) => {
-    if (!user) return;
-    
-    const comment = findComment(id, comments);
-    if (!comment || comment.author.id !== user.id) return;
-    
-    if (window.confirm('Are you sure you want to delete this comment?')) {
-      ydoc.transact(() => {
-        if (isReply && parentId) {
-          // Delete a reply
-          const parentIndex = yComments.toArray().findIndex(c => {
-            const cComment = toComment(c);
-            return cComment.id === parentId;
-          });
-          
-          if (parentIndex !== -1) {
-            const parent = yComments.get(parentIndex);
-            const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
-            const replyIndex = replies.toArray().findIndex(r => {
-              const reply = toComment(r);
-              return reply.id === id;
-            });
-            
-            if (replyIndex !== -1) {
-              replies.delete(replyIndex, 1);
-            }
-          }
-        } else {
-          // Delete a top-level comment
-          const index = yComments.toArray().findIndex(c => {
-            const cComment = toComment(c);
-            return cComment.id === id;
-          });
-          
-          if (index !== -1) {
-            yComments.delete(index, 1);
-          }
-        }
-      });
-    }
-  };
-
-  const markNotificationAsRead = (id: string) => {
-    setNotifications(notifications.map(n => 
+  // Notification handling
+  const markNotificationAsRead = useCallback((id: string) => {
+    setNotifications(prev => prev.map(n => 
       n.id === id ? { ...n, read: true } : n
     ));
-  };
+  }, []);
 
-  const clearAllNotifications = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
-  };
+  const clearAllNotifications = useCallback(() => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  }, []);
+
+  // Wrapper for CommentList's onAddComment
+  const handleAddComment = useCallback(() => {
+    if (replyingTo) {
+      addComment(replyText, replyingTo);
+      setReplyText('');
+      setReplyingTo(null);
+    } else {
+      addComment(newComment, null);
+      setNewComment('');
+    }
+  }, [addComment, newComment, replyText, replyingTo]);
 
   if (!user) {
     return (
@@ -408,40 +210,25 @@ function Comments() {
         )}
 
         {!replyingTo && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-200 hover:shadow-md">
-            <div className="p-1">
-              <textarea
-                value={newComment}
-                onChange={handleMainCommentChange}
-                onKeyPress={handleMainCommentKeyPress}
-                placeholder="Share your thoughts..."
-                rows={3}
-                className="w-full px-4 py-3 focus:outline-none resize-none"
-              />
-            </div>
-            <div className="flex justify-between items-center bg-gray-50 px-4 py-2 border-t border-gray-200">
-              <span className="text-xs text-gray-500">Press Enter to post</span>
-              <button
-                onClick={addComment}
-                disabled={!newComment.trim()}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                  newComment.trim()
-                    ? 'bg-blue-600 text-white shadow hover:bg-blue-700 hover:shadow-md' 
-                    : 'bg-gray-200 text-black cursor-not-allowed'
-                }`}
-              >
-                Post Comment
-              </button>
-            </div>
-          </div>
+      <CommentInput
+      value={newComment}
+      onChange={(e) => setNewComment(e.target.value)}
+      onKeyPress={handleMainCommentKeyPress}
+      onSubmit={() => {
+        addComment(newComment, null);
+        setNewComment('');
+      }}
+      isProcessing={isProcessing}
+    />
+    
+     
+      
         )}
 
         <div className="space-y-4">
           {comments.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center transition-all duration-200 hover:shadow-md">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
+              
               <h3 className="mt-2 text-sm font-medium text-gray-900">No comments yet</h3>
               <p className="mt-1 text-sm text-gray-500">Be the first to share what you think!</p>
             </div>
@@ -457,7 +244,7 @@ function Comments() {
               onReplyKeyPress={handleReplyKeyPress}
               editingComment={editingComment}
               setEditingComment={setEditingComment}
-              onAddComment={addComment}
+              onAddComment={handleAddComment} 
               onDeleteComment={deleteComment}
               onStartEditing={startEditing}
               onSaveEdit={saveEdit}
@@ -467,19 +254,7 @@ function Comments() {
         </div>
       </div>
 
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.3s ease-out forwards;
-        }
-        .mention {
-          color: #3b82f6;
-          font-weight: bold;
-        }
-      `}</style>
+     
     </div>
   );
 }

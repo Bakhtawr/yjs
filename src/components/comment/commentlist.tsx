@@ -97,7 +97,8 @@ const CommentList: React.FC<CommentListProps> = ({
                     </svg>
                   </button>
                   <button
-                    onClick={() => onDeleteComment(comment.id, depth > 0, parentId)}
+                    onClick={() => onDeleteComment(comment.id, !!parentId, parentId)
+                    }
                     className="text-xs text-gray-500 hover:text-red-600 transition-colors"
                     title="Delete"
                   >
@@ -140,6 +141,8 @@ const CommentList: React.FC<CommentListProps> = ({
               </div>
             ) : (
               <div className="pl-10">
+                
+
                 <p 
                   className="text-gray-700"
                   dangerouslySetInnerHTML={{

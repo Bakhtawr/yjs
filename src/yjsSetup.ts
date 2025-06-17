@@ -25,7 +25,20 @@ export interface Comment {
   mentions?: Mention[];
 }
 
+export interface YNotification {
+
+  id: string
+  type: 'mention' | 'reply';
+  commentId: string;
+  author: User;
+  recipientId: string;
+  timestamp: string;
+  read: boolean;
+  content?: string;
+}
+
 export const ydoc = new Y.Doc();
+export const yNotifications = ydoc.getArray<Y.Map<any>>('notifications');
 export const yComments = ydoc.getArray<Y.Map<any>>('comments');
 export const yUsers = ydoc.getMap<User>('users');
 
@@ -91,6 +104,29 @@ export const createYComment = (
   return yComment;
 };
 
+export const toNotification = (item: Y.Map<any>): YNotification => ({
+  id: item.get('id'),
+  type: item.get('type'),
+  commentId: item.get('commentId'),
+  author: item.get('author'),
+  recipientId: item.get('recipientId'),
+  timestamp: item.get('timestamp'),
+  read: item.get('read'),
+  content: item.get('content') || '',
+});
+
+export const createYNotification = (notif: YNotification): Y.Map<any> => {
+  const yNotif = new Y.Map();
+  yNotif.set('id', notif.id);
+  yNotif.set('type', notif.type);
+  yNotif.set('commentId', notif.commentId);
+  yNotif.set('author', notif.author);
+  yNotif.set('recipientId', notif.recipientId);
+  yNotif.set('timestamp', notif.timestamp);
+  yNotif.set('read', notif.read);
+  yNotif.set('content', notif.content || '');
+  return yNotif;
+};
 
 
 export const createYCommentFromJSON = (comment: Comment): Y.Map<any> => {
@@ -110,3 +146,5 @@ export const createYCommentFromJSON = (comment: Comment): Y.Map<any> => {
   yComment.set('replies', repliesArray);
   return yComment;
 };
+export { Y };
+
