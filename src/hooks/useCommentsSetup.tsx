@@ -4,8 +4,7 @@ import { ydoc, yComments, toComment, type User, type Comment, type YNotification
 import { setupWebsocketProvider } from '../yjsSetup';
 import { setupUserPresence, getActiveUsers } from '../utils/yjs/presenceUtils';
 import { yNotifications, toNotification } from '../yjsSetup';
-
-
+import { toast } from 'react-hot-toast';
 
 
 export function useCommentsSetup(user: User | null) {
@@ -16,20 +15,74 @@ export function useCommentsSetup(user: User | null) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [notifications, setNotifications] = useState<YNotification[]>([]);
 
-  const syncNotifications = useCallback(() => {
-    const notifs = yNotifications.toArray().map(toNotification);
-    setNotifications(notifs);
-  }, []);
   
-  useEffect(() => {
-    const observer = () => syncNotifications();
-    yNotifications.observeDeep(observer);
-    syncNotifications();
+
   
-    return () => {
-      yNotifications.unobserveDeep(observer);
-    };
-  }, []);
+ // Notification handling with toast
+ useEffect(() => {
+  if (!user) return;
+
+  const handleNotifications = () => {
+    const allNotifications = yNotifications.toArray().map(toNotification);
+    setNotifications(allNotifications);
+
+    // Find the latest unread notification for current user
+    const latestUnread = allNotifications
+      .filter(n => !n.read && n.recipientId === user.id && n.author.id !== user.id)
+      .pop();
+
+    if (latestUnread) {
+      console.log('New notification detected:', latestUnread);
+      
+      // Show simple toast notification (without JSX)
+      toast(
+        `${latestUnread.author.name} ${
+          latestUnread.type === 'reply' ? 'replied' : 'mentioned you'
+        }: ${latestUnread.content}`,
+        {
+          duration: 5000,
+          position: 'top-right',
+          icon: (
+            <div 
+              style={{ 
+                backgroundColor: latestUnread.author.color,
+                width: '20px',
+                height: '20px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontSize: '10px'
+              }}
+            >
+              {latestUnread.author.name.charAt(0)}
+            </div>
+          )
+        }
+      );
+
+      // Mark as read in Yjs
+      ydoc.transact(() => {
+        const notificationMap = yNotifications
+          .toArray()
+          .find(n => n.get('id') === latestUnread.id);
+        
+        if (notificationMap) {
+          notificationMap.set('read', true);
+        }
+      });
+    }
+  };
+
+  // Set up observation
+  yNotifications.observeDeep(handleNotifications);
+  handleNotifications(); // Initial check
+
+  return () => {
+    yNotifications.unobserveDeep(handleNotifications);
+  };
+}, [user?.id]);
 
   const processYComments = useCallback(() => {
     const processNested = (yComment: Y.Map<any>): Comment => {

@@ -17,6 +17,7 @@
     "firebase": "^11.9.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-hot-toast": "^2.5.2",
     "react-mentions": "^4.4.10",
     "react-yjs": "^2.0.1",
     "uuid": "^11.1.0",

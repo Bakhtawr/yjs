@@ -34,6 +34,7 @@ user: User | null, provider: any, comments: Comment[], users: User[], _notificat
               if (parentComment.author.id !== user.id) {
                 const mentionNotifs = checkForMentions(newComment, user, users, []);
                 const replyNotifs = checkForReplies(newComment, parentComment, user, []);
+                console.log('🔔 Creating reply notification for', parentComment.author.name);
 
                 [...mentionNotifs, ...replyNotifs].forEach(n =>
                   yNotifications.push([createYNotification(n as YNotification)])
@@ -47,6 +48,7 @@ user: User | null, provider: any, comments: Comment[], users: User[], _notificat
             const newComment = toComment(yComment);
 
             const mentionNotifs = checkForMentions(newComment, user, users, []);
+   
             mentionNotifs.forEach(n =>
               yNotifications.push([createYNotification(n as YNotification)])
             );
