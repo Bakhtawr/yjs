@@ -38,9 +38,11 @@ const CommentList: React.FC<CommentListProps> = ({
   onReplyKeyPress,
 }) => {
   const renderComments = (commentsToRender: Comment[] = [], depth = 0, parentId?: string) => {
-    return commentsToRender.map((comment) => {
+    return commentsToRender.map((comment, index) => {
       if (!comment || !comment.id) return null;
       
+      // Create a unique key by combining the comment id with its index and parentId if available
+      const uniqueKey = `${comment.id}-${index}${parentId ? `-${parentId}` : ''}`;
       const replies = Array.isArray(comment.replies) ? comment.replies : [];
       const isCurrentUser = comment.author.id === user.id;
       const isEditing = editingComment?.id === comment.id;
@@ -48,7 +50,7 @@ const CommentList: React.FC<CommentListProps> = ({
 
       return (
         <div 
-          key={comment.id} 
+          key={uniqueKey} 
           className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden animate-fadeIn ${
             depth > 0 ? 'ml-6 mt-2' : 'mt-4'
           } transition-all duration-200 hover:shadow-md`}
