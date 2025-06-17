@@ -2,14 +2,14 @@ import * as Y from 'yjs';
 import { useState, useEffect } from 'react';
 import { ydoc, yComments, toComment, createYComment, type User, type Comment, createYCommentFromJSON } from '../../yjsSetup';
 import { setupWebsocketProvider } from '../../yjsSetup';
-import { findComment } from '../../utils/commentUtils';
-import { setupUserPresence, getActiveUsers, updateCursorPosition, updateActiveComment } from '../../utils/presenceUtils';
-import { checkForMentions, checkForReplies, type Notification } from '../../utils/notificationUtils';
+import { findComment } from '../../utils/comments/commentUtils';
+import { setupUserPresence, getActiveUsers, updateCursorPosition, updateActiveComment } from '../../utils/yjs/presenceUtils';
+import { checkForMentions, checkForReplies, type Notification } from '../../utils/yjs/notificationUtils';
 import CommentList from './commentlist';
 import PresenceIndicator from './PresenceIndicator';
 import NotificationsPanel from './NotificationsPanel';
 import { useAuth } from '../../contexts/AuthContext';
-import { generateColorFromUID } from '../../utils/authUtils';
+import { generateColorFromUID } from '../../utils/auth/authUtils';
 import { loadCommentsFromFirestore, saveCommentsToFirestore } from '../../utils/firestoreUtils';
 
 function Comments() {
@@ -185,14 +185,16 @@ function Comments() {
         users,
         notifications
       ).map(notification => {
-        const mention = yComment.get('mentions').find((m: any) => 
+        const mention = yComment.get('mentions')?.find((m: any) =>
           notification.content === yComment.get('text').substring(m.position, m.position + m.length)
         );
+      
         return {
           ...notification,
-          recipientId: mention.userId
+          recipientId: mention?.userId || notification.recipientId // fallback for safety
         };
       });
+      
       
       setNotifications(prev => [...prev, ...mentionNotifications]);
     });

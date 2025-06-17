@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Notification } from '../../utils/notificationUtils';
+import type { Notification } from '../../utils/yjs/notificationUtils';
 
 interface NotificationsPanelProps {
   notifications: Notification[];

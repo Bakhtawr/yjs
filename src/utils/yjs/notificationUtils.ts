@@ -1,11 +1,13 @@
-import type { Comment, User } from '../yjsSetup';
+// src/utils/yjs/notificationUtils.ts
+
+import type { Comment, User } from '../../yjsSetup';
 
 export interface Notification {
   id: string;
-  type: 'mention' | 'reply' | 'reaction';
+  type: 'mention' | 'reply';
   commentId: string;
   author: User;
-  recipientId: string; // This identifies who should receive the notification
+  recipientId: string; // Jis user ko notification jayegi
   timestamp: string;
   read: boolean;
   content?: string;
@@ -15,7 +17,7 @@ export const createNotification = (
   type: Notification['type'],
   comment: Comment,
   author: User,
-  recipientId: string, // Add recipientId parameter
+  recipientId: string,
   content?: string
 ): Notification => {
   return {
@@ -23,7 +25,7 @@ export const createNotification = (
     type,
     commentId: comment.id,
     author,
-    recipientId, // Include in the notification
+    recipientId,
     timestamp: new Date().toISOString(),
     read: false,
     content
@@ -38,19 +40,21 @@ export const checkForMentions = (
 ): Notification[] => {
   const newNotifications: Notification[] = [];
   
-  if (!newComment.mentions) return newNotifications;
-  
+  if (!newComment.mentions || newComment.mentions.length === 0) {
+    return newNotifications;
+  }
+
   newComment.mentions.forEach(mention => {
-    const mentionedUser = users.find(u => u.id === mention.userId);
+    const mentionedUser = users.find(u => u.name === mention.userName);
     
-    // STRICT CHECK: Only notify if:
+    // Sirf notify karein agar:
     // 1. Mentioned user exists
-    // 2. Mentioned user is NOT the current user
+    // 2. Mentioned user current user nahi hai
     if (mentionedUser && mentionedUser.id !== currentUser.id) {
       const alreadyNotified = existingNotifications.some(
         n => n.type === 'mention' && 
              n.commentId === newComment.id && 
-             n.recipientId === mentionedUser.id // Check recipient too
+             n.recipientId === mentionedUser.id
       );
       
       if (!alreadyNotified) {
@@ -59,8 +63,8 @@ export const checkForMentions = (
             'mention',
             newComment,
             currentUser,
-            mentionedUser.id, // RECIPIENT = mentioned user
-            newComment.text.substring(mention.position, mention.position + mention.length)
+            mentionedUser.id,
+            `@${mention.userName}`
           )
         );
       }
@@ -78,12 +82,12 @@ export const checkForReplies = (
 ): Notification[] => {
   const newNotifications: Notification[] = [];
   
-  // Only create notification if parent author is not the current user
+  // Sirf notify karein agar:
+  // 1. Parent comment author current user nahi hai
   if (parentComment.author.id !== currentUser.id) {
     const alreadyNotified = existingNotifications.some(
       n => n.type === 'reply' && 
            n.commentId === parentComment.id && 
-           n.author.id === currentUser.id &&
            n.recipientId === parentComment.author.id
     );
     
@@ -93,8 +97,8 @@ export const checkForReplies = (
           'reply',
           parentComment,
           currentUser,
-          parentComment.author.id, // The recipient is the parent comment author
-          newComment.text
+          parentComment.author.id,
+          newComment.text.substring(0, 50) // First 50 characters as preview
         )
       );
     }

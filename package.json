@@ -18,6 +18,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-yjs": "^2.0.1",
+    "uuid": "^11.1.0",
     "yjs": "^13.6.27"
   },
   "devDependencies": {

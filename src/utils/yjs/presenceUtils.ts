@@ -1,4 +1,4 @@
-import type { User } from '../yjsSetup';
+import type { User } from '../../yjsSetup';
 
 // Define types for presence/awareness states
 interface PresenceState {
