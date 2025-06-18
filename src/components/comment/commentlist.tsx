@@ -1,6 +1,5 @@
 import React from 'react';
 import type { Comment, User } from '../../yjsSetup';
-import { highlightMentions } from '../../utils/mentionUtils';
 
 interface CommentListProps {
   comments: Comment[];
@@ -23,7 +22,6 @@ interface CommentListProps {
 const CommentList: React.FC<CommentListProps> = ({
   comments,
   user,
-  users,
   replyingTo,
   setReplyingTo,
   replyText,
@@ -143,12 +141,10 @@ const CommentList: React.FC<CommentListProps> = ({
               <div className="pl-10">
                 
 
-                <p 
-                  className="text-gray-700"
-                  dangerouslySetInnerHTML={{
-                    __html: highlightMentions(comment.text, mentionedUsers, users)
-                  }}
-                />
+                <p className="text-gray-700 whitespace-pre-line">
+  {comment.text}
+</p>
+
                 {mentionedUsers.length > 0 && (
                   <div className="mt-1 text-xs text-gray-500">
                     Mentioned: {mentionedUsers.map(m => m.userName).join(', ')}

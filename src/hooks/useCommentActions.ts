@@ -1,11 +1,8 @@
 import { useCallback, useState } from 'react';
 import { ydoc, yComments, toComment, createYComment, type User, type Comment } from '../yjsSetup';
-import { checkForMentions, checkForReplies } from '../utils/yjs/notificationUtils';
 import { updateActiveComment } from '../utils/yjs/presenceUtils';
 import { Y } from '../yjsSetup';
 import { findComment } from '../utils/comments/commentUtils';
-import { yNotifications, createYNotification } from '../yjsSetup';
-import type { YNotification } from '../yjsSetup';
 import type { Notification } from '../components/comment/comment';
 
 export function useCommentActions(
@@ -29,29 +26,21 @@ user: User | null, provider: any, comments: Comment[], users: User[], _notificat
               replies.push([yComment]);
 
               const parentComment = toComment(parent);
-              const newComment = toComment(yComment);
 
               if (parentComment.author.id !== user.id) {
-                const mentionNotifs = checkForMentions(newComment, user, users, []);
-                const replyNotifs = checkForReplies(newComment, parentComment, user, []);
+               
                 console.log('🔔 Creating reply notification for', parentComment.author.name);
 
-                [...mentionNotifs, ...replyNotifs].forEach(n =>
-                  yNotifications.push([createYNotification(n as YNotification)])
-                );
+               
               }
 
               parent.set('updatedAt', new Date().toISOString());
             }
           } else {
             yComments.push([yComment]);
-            const newComment = toComment(yComment);
 
-            const mentionNotifs = checkForMentions(newComment, user, users, []);
    
-            mentionNotifs.forEach(n =>
-              yNotifications.push([createYNotification(n as YNotification)])
-            );
+           
           }
         });
 
