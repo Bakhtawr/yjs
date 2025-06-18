@@ -79,7 +79,8 @@ export function useCommentsSetup(user: User | null) {
               : {latestUnread.content?.slice(0, 50)}
             </span>
           </div>
-        ));
+        ), { duration: Infinity }); 
+        
         
 
         // Mark as read in Yjs
