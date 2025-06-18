@@ -1,5 +1,6 @@
 import React from 'react';
-import type { Comment, User } from '../../yjsSetup';
+import type { Comment, User, Mention } from '../../yjsSetup';
+import CommentInput from './commentInput';
 
 interface CommentListProps {
   comments: Comment[];
@@ -8,7 +9,9 @@ interface CommentListProps {
   replyingTo: string | null;
   setReplyingTo: (id: string | null) => void;
   replyText: string;
+  setReplyText: (text: string) => void;
   onReplyChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onReplyKeyPress: (e: React.KeyboardEvent) => void;
   editingComment: {id: string, text: string} | null;
   setEditingComment: (comment: {id: string, text: string} | null) => void;
   onAddComment: () => void;
@@ -16,16 +19,19 @@ interface CommentListProps {
   onStartEditing: (comment: Comment) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
-  onReplyKeyPress: (e: React.KeyboardEvent) => void;
+  typingUsers: User[];
+  onMentionInsert: (text: string) => void; // ✅ Add this line
 }
 
 const CommentList: React.FC<CommentListProps> = ({
   comments,
   user,
+  users,
   replyingTo,
   setReplyingTo,
   replyText,
   onReplyChange,
+  onReplyKeyPress,
   editingComment,
   setEditingComment,
   onAddComment,
@@ -33,22 +39,69 @@ const CommentList: React.FC<CommentListProps> = ({
   onStartEditing,
   onSaveEdit,
   onCancelEdit,
-  onReplyKeyPress,
+  typingUsers,
+  setReplyText,
+  onMentionInsert
 }) => {
+  const renderTextWithMentions = (text: string, mentions: Mention[] = []) => {
+    if (!mentions.length) return text;
+
+    const parts = [];
+    let lastIndex = 0;
+
+    mentions
+      .sort((a, b) => a.position - b.position)
+      .forEach((mention) => {
+        // Add text before mention
+        if (mention.position > lastIndex) {
+          parts.push(text.substring(lastIndex, mention.position));
+        }
+
+        // Add mention
+        const mentionedUser = users.find(u => u.id === mention.userId);
+        if (mentionedUser) {
+          parts.push(
+            <span 
+              key={`${mention.position}-${mention.userId}`}
+              className="font-medium text-blue-600 hover:underline cursor-pointer"
+              title={`@${mentionedUser.name}`}
+              onClick={() => {
+                // You could add navigation to user profile here
+              }}
+            >
+              {text.substring(mention.position, mention.position + mention.length)}
+            </span>
+          );
+        } else {
+          parts.push(text.substring(mention.position, mention.position + mention.length));
+        }
+
+        lastIndex = mention.position + mention.length;
+      });
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts;
+  };
+
   const renderComments = (commentsToRender: Comment[] = [], depth = 0, parentId?: string) => {
     return commentsToRender.map((comment, index) => {
       if (!comment || !comment.id) return null;
       
-      // Create a unique key by combining the comment id with its index and parentId if available
       const uniqueKey = `${comment.id}-${index}${parentId ? `-${parentId}` : ''}`;
       const replies = Array.isArray(comment.replies) ? comment.replies : [];
       const isCurrentUser = comment.author.id === user.id;
       const isEditing = editingComment?.id === comment.id;
       const mentionedUsers = comment.mentions || [];
+      const isTyping = typingUsers.some(u => u.id === comment.author.id && u.id !== user.id);
 
       return (
         <div 
           key={uniqueKey} 
+          id={`comment-${comment.id}`}
           className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden animate-fadeIn ${
             depth > 0 ? 'ml-6 mt-2' : 'mt-4'
           } transition-all duration-200 hover:shadow-md`}
@@ -71,14 +124,24 @@ const CommentList: React.FC<CommentListProps> = ({
                   </div>
                 )}
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">
-                    {comment.author.name}
-                    {isCurrentUser && (
-                      <span className="ml-1 text-xs text-blue-600">(you)</span>
+                  <div className="flex items-center">
+                    <h4 className="text-sm font-medium text-gray-900">
+                      {comment.author.name}
+                      {isCurrentUser && (
+                        <span className="ml-1 text-xs text-blue-600">(you)</span>
+                      )}
+                    </h4>
+                    {isTyping && (
+                      <span className="ml-2 text-xs text-gray-500 animate-pulse">
+                        typing...
+                      </span>
                     )}
-                  </h4>
+                  </div>
                   <span className="text-xs text-gray-500">
                     {new Date(comment.timestamp).toLocaleString()}
+                    {comment.updatedAt && (
+                      <span className="ml-1 text-gray-400">(edited)</span>
+                    )}
                   </span>
                 </div>
               </div>
@@ -95,8 +158,7 @@ const CommentList: React.FC<CommentListProps> = ({
                     </svg>
                   </button>
                   <button
-                    onClick={() => onDeleteComment(comment.id, !!parentId, parentId)
-                    }
+                    onClick={() => onDeleteComment(comment.id, !!parentId, parentId)}
                     className="text-xs text-gray-500 hover:text-red-600 transition-colors"
                     title="Delete"
                   >
@@ -139,15 +201,16 @@ const CommentList: React.FC<CommentListProps> = ({
               </div>
             ) : (
               <div className="pl-10">
-                
-
                 <p className="text-gray-700 whitespace-pre-line">
-  {comment.text}
-</p>
+                  {renderTextWithMentions(comment.text, mentionedUsers)}
+                </p>
 
                 {mentionedUsers.length > 0 && (
                   <div className="mt-1 text-xs text-gray-500">
-                    Mentioned: {mentionedUsers.map(m => m.userName).join(', ')}
+                    Mentioned: {mentionedUsers.map(m => {
+                      const user = users.find(u => u.id === m.userId);
+                      return user ? user.name : m.userName;
+                    }).join(', ')}
                   </div>
                 )}
               </div>
@@ -178,34 +241,17 @@ const CommentList: React.FC<CommentListProps> = ({
 
             {replyingTo === comment.id && (
               <div className="mt-3 pl-10">
-                <textarea
+                <CommentInput
                   value={replyText}
                   onChange={onReplyChange}
                   onKeyPress={onReplyKeyPress}
-                  placeholder="Write your reply..."
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                  autoFocus
-                />
-                <div className="flex justify-end space-x-2 mt-1">
-                  <button
-                    onClick={() => setReplyingTo(null)}
-                    className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={onAddComment}
-                    disabled={!replyText.trim()}
-                    className={`px-3 py-1 rounded-md text-sm font-medium ${
-                      replyText.trim() 
-                        ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                        : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    Reply
-                  </button>
-                </div>
+                  onSubmit={onAddComment}
+                  users={users.filter(u => u.id !== user?.id)}
+                  currentUserId={user?.id} isProcessing={false}
+                  onValueChange={setReplyText} 
+                  onMentionInsert={onMentionInsert}
+
+                   />
               </div>
             )}
           </div>

@@ -5,12 +5,10 @@ import { useCommentsSetup } from '../../hooks/useCommentsSetup';
 import { useCommentActions } from '../../hooks/useCommentActions';
 import CommentList from './commentlist';
 import PresenceIndicator from './PresenceIndicator';
-import type { User } from '../../yjsSetup';
-import { updateCursorPosition } from '../../utils/yjs/presenceUtils'; 
-
+import type { User, Mention } from '../../yjsSetup';
+import { updateCursorPosition } from '../../utils/yjs/presenceUtils';
 import CommentInput from './commentInput';
 
-// types.ts
 export interface Comment {
   id: string;
   text: string;
@@ -19,19 +17,8 @@ export interface Comment {
   replies?: Comment[];
   isEditing?: boolean;
   updatedAt?: string;
-  mentions?: { userId: string; userName: string }[];
+  mentions?: Mention[];
 }
-
-export type Notification = {
-  id: string;
-  type: "mention" | "reply";
-  commentId: string;
-  recipientId: string;
-  author: User;
-  read: boolean;
-  timestamp: string;
-};
-
 
 function Comments() {
   const { currentUser, loginWithGoogle } = useAuth();
@@ -40,7 +27,7 @@ function Comments() {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]); // Moved before useCommentActions
+  const [mentions, setMentions] = useState<Mention[]>([]);
 
   const {
     comments,
@@ -49,6 +36,8 @@ function Comments() {
     provider,
     isProcessing,
     setIsProcessing,
+    typingUsers,
+    setTyping,
   } = useCommentsSetup(user);
 
   const {
@@ -64,8 +53,8 @@ function Comments() {
     provider,
     comments,
     users,
-    notifications,
-    setNotifications,
+    [], // Empty array since notifications are handled in useCommentsSetup
+    () => {}, // Empty callback
     setError,
     setIsProcessing
   );
@@ -83,18 +72,56 @@ function Comments() {
     }
   }, [currentUser]);
 
+  // Extract mentions from text
+  const extractMentions = useCallback((text: string): Mention[] => {
+    const mentionRegex = /@(\w+)/g;
+    const mentions: Mention[] = [];
+    let match: RegExpExecArray | null;
+
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const username = match[1];
+      const mentionedUser = users.find(u => 
+        u.name.toLowerCase() === username.toLowerCase() && 
+        u.id !== user?.id
+      );
+      
+      if (mentionedUser) {
+        mentions.push({
+          userId: mentionedUser.id,
+          userName: mentionedUser.name,
+          position: match.index,
+          length: match[0].length
+        });
+      }
+    }
+
+    return mentions;
+  }, [users, user]);
+
   const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setReplyText(e.target.value);
+    const text = e.target.value;
+    setReplyText(text);
+    setMentions(extractMentions(text));
     if (provider) updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
+    setTyping(text.length > 0);
   };
 
-  // Keyboard handlers
+  const handleMainCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    setNewComment(text);
+    setMentions(extractMentions(text));
+    if (provider) updateCursorPosition(provider, { x: e.target.selectionStart, y: 0 });
+    setTyping(text.length > 0);
+  };
+
   const handleMainCommentKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!replyingTo) {
-        addComment(newComment, null);
+        addComment(newComment, null, mentions);
         setNewComment('');
+        setMentions([]);
+        setTyping(false);
       }
     }
   };
@@ -102,24 +129,28 @@ function Comments() {
   const handleReplyKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      addComment(replyText, replyingTo);
+      addComment(replyText, replyingTo, mentions);
       setReplyText('');
       setReplyingTo(null);
+      setMentions([]);
+      setTyping(false);
     }
   };
-
   
-  // Wrapper for CommentList's onAddComment
   const handleAddComment = useCallback(() => {
     if (replyingTo) {
-      addComment(replyText, replyingTo);
+      addComment(replyText, replyingTo, mentions);
       setReplyText('');
       setReplyingTo(null);
+      setMentions([]);
     } else {
-      addComment(newComment, null);
+      addComment(newComment, null, mentions);
       setNewComment('');
+      setMentions([]);
     }
-  }, [addComment, newComment, replyText, replyingTo]);
+    setTyping(false);
+  }, [addComment, newComment, replyText, replyingTo, mentions]);
+
 
   if (!user) {
     return (
@@ -155,6 +186,11 @@ function Comments() {
     );
   }
 
+  function onMentionInsert(text: string): void {
+    setMentions(extractMentions(text));
+  }
+  
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -169,58 +205,68 @@ function Comments() {
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <PresenceIndicator users={users} currentUser={user} />       
+            <PresenceIndicator 
+              users={users} 
+              currentUser={user} 
+              typingUsers={typingUsers} 
+            />       
           </div>
         </div>
 
-       
-
         {!replyingTo && (
-      <CommentInput
-      value={newComment}
-      onChange={(e) => setNewComment(e.target.value)}
-      onKeyPress={handleMainCommentKeyPress}
-      onSubmit={() => {
-        addComment(newComment, null);
-        setNewComment('');
-      }}
-      isProcessing={isProcessing}
-    />
-    
-     
-      
+          <CommentInput
+          value={newComment}
+          onChange={handleMainCommentChange}
+          onKeyPress={handleMainCommentKeyPress}
+          onSubmit={() => {
+            addComment(newComment, null, mentions);
+            setNewComment('');
+            setMentions([]);
+          }}
+          isProcessing={isProcessing}
+          onValueChange={(text) => {
+            setNewComment(text);
+            setMentions(extractMentions(text)); 
+          }}
+          onMentionInsert={onMentionInsert} 
+          users={users.filter(u => u.id !== user?.id)}
+          currentUserId={user?.id}
+        />
+        
         )}
 
         <div className="space-y-4">
           {comments.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center transition-all duration-200 hover:shadow-md">
-              
               <h3 className="mt-2 text-sm font-medium text-gray-900">No comments yet</h3>
               <p className="mt-1 text-sm text-gray-500">Be the first to share what you think!</p>
             </div>
           ) : (
             <CommentList
-              comments={comments}
-              user={user}
-              users={users}
-              replyingTo={replyingTo}
-              setReplyingTo={setReplyingTo}
-              replyText={replyText}
-              onReplyChange={handleReplyChange}
-              onReplyKeyPress={handleReplyKeyPress}
-              editingComment={editingComment}
-              setEditingComment={setEditingComment}
-              onAddComment={handleAddComment} 
-              onDeleteComment={deleteComment}
-              onStartEditing={startEditing}
-              onSaveEdit={saveEdit}
-              onCancelEdit={cancelEdit}
-            />
+            comments={comments}
+            user={user}
+            users={users}
+            replyingTo={replyingTo}
+            setReplyingTo={setReplyingTo}
+            replyText={replyText}
+            setReplyText={setReplyText}
+            onReplyChange={handleReplyChange}
+            onReplyKeyPress={handleReplyKeyPress}
+            editingComment={editingComment}
+            setEditingComment={setEditingComment}
+            onAddComment={handleAddComment}
+            onDeleteComment={deleteComment}
+            onStartEditing={startEditing}
+            onSaveEdit={saveEdit}
+            onCancelEdit={cancelEdit}
+            typingUsers={typingUsers} 
+            onMentionInsert={onMentionInsert}
+
+          />
+          
           )}
         </div>
       </div>
-
-     
     </div>
   );
 }
