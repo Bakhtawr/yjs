@@ -55,23 +55,40 @@ export function useCommentActions(
   }, []);
 
   const addComment = useCallback(
-    async (text: string, replyingTo: string | null, mentions: Mention[] = []) => {
+    async (text: string, replyingTo: string | null, mentions: Mention[] = [], parentPath: string[] = []) => {
       if (!user || !text.trim()) return;
-
+  
       try {
         setIsProcessing(true);
         const yComment = createYComment(text, user, mentions);
-
+  
         await ydoc.transact(async () => {
           if (replyingTo) {
-            const parentIndex = yComments.toArray().findIndex(c => toComment(c).id === replyingTo);
+            // Start from the root comments array
+            let currentArray = yComments;
+            
+            // If we have a parent path, navigate through the reply chains
+            if (parentPath.length > 0) {
+              for (const parentId of parentPath) {
+                const parentIndex = currentArray.toArray().findIndex(c => toComment(c).id === parentId);
+                if (parentIndex === -1) break;
+                
+                const parent = currentArray.get(parentIndex);
+                const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
+                currentArray = replies;
+              }
+            }
+  
+            // Find the immediate parent in the current array
+            const parentIndex = currentArray.toArray().findIndex(c => toComment(c).id === replyingTo);
             if (parentIndex !== -1) {
-              const parent = yComments.get(parentIndex);
+              const parent = currentArray.get(parentIndex);
               const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
               replies.push([yComment]);
-
+  
               const parentComment = toComment(parent);
-
+              
+              // Only notify if replying to someone else's comment
               if (parentComment.author.id !== user.id) {
                 createNotification({
                   type: 'reply',
@@ -81,13 +98,14 @@ export function useCommentActions(
                   content: `Replied to your comment: ${text.substring(0, 100)}`
                 });
               }
-
+  
               parent.set('updatedAt', new Date().toISOString());
             }
           } else {
+            // Top-level comment
             yComments.push([yComment]);
           }
-
+  
           // Handle mentions
           mentions.forEach(mention => {
             if (mention.userId !== user.id) {
@@ -101,7 +119,7 @@ export function useCommentActions(
             }
           });
         });
-
+  
         if (provider) updateActiveComment(provider, null);
       } catch (err) {
         setError('Failed to add comment');

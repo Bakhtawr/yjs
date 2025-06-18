@@ -218,7 +218,11 @@ const CommentList: React.FC<CommentListProps> = ({
     
             <div className="flex items-center mt-3 pl-10">
               <button
-                onClick={() => setReplyingTo(comment.id === replyingTo ? null : comment.id)}
+                onClick={() => {
+                  const rootId = parentId || comment.id;
+                  setReplyingTo(replyingTo === rootId ? null : rootId);
+                }}
+                
                 className="flex items-center text-blue-500 hover:text-blue-700 text-xs transition-colors"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
