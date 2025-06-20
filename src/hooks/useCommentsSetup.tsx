@@ -96,6 +96,7 @@ export function useCommentsSetup(user: User | null) {
     };
   }, [user?.id]);
 
+ 
   // Track comment changes and detect edits for history
   const processYComments = useCallback(() => {
     const processNested = (yComment: Y.Map<any>): Comment => {
