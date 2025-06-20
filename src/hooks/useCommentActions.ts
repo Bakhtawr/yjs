@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ydoc, yComments, toComment, createYComment, type User, type Comment, yNotifications } from '../yjsSetup';
+import { ydoc, yComments, toComment, createYComment, type User, type Comment, yNotifications, type Mention } from '../yjsSetup';
 import { updateActiveComment } from '../utils/yjs/presenceUtils';
 import { Y } from '../yjsSetup';
 import { findComment } from '../utils/comments/commentUtils';
@@ -13,13 +13,6 @@ interface CommentActions {
   deleteComment: (id: string, isReply?: boolean, parentId?: string) => void;
   editingComment: { id: string; text: string } | null;
   setEditingComment: React.Dispatch<React.SetStateAction<{ id: string; text: string } | null>>;
-}
-
-interface Mention {
-  userName: string;
-  userId: string;
-  position: number;
-  length: number;
 }
 
 export function useCommentActions(
@@ -61,12 +54,23 @@ export function useCommentActions(
   
       try {
         setIsProcessing(true);
-        const yComment = createYComment(text, user, mentions);
+        
+        // Process mentions to ensure they have firstName
+        const processedMentions = mentions.map(mention => {
+          const mentionedUser = users.find(u => u.id === mention.userId);
+          return {
+            ...mention,
+            firstName: mentionedUser?.name.split(' ')[0] || mention.userName.split(' ')[0]
+          };
+        });
+        
+        const yComment = createYComment(text, user, processedMentions);
   
         await ydoc.transact(async () => {
           if (replyingTo) {
             let currentArray = yComments;
             
+            // Navigate through parent path if provided
             if (parentPath.length > 0) {
               for (const parentId of parentPath) {
                 const parentIndex = currentArray.toArray().findIndex(c => toComment(c).id === parentId);
@@ -84,44 +88,41 @@ export function useCommentActions(
               const replies = parent.get('replies') as Y.Array<Y.Map<any>>;
               replies.push([yComment]);
   
+              // Create reply notification if not replying to self
               const parentComment = toComment(parent);
               if (parentComment.author.id !== user.id) {
-                createNotification({
-                  type: 'reply',
-                  commentId: replyingTo,
-                  author: user,
-                  recipientId: parentComment.author.id,
-                  content: `Replied to your comment: ${text.substring(0, 50)}...`
-                });
+                // Check if parent comment author is mentioned
+                const isParentMentioned = processedMentions.some(m => m.userId === parentComment.author.id);
+                
+                if (!isParentMentioned) {
+                  createNotification({
+                    type: 'reply',
+                    commentId: replyingTo,
+                    author: user,
+                    recipientId: parentComment.author.id,
+                    content: `Replied to your comment: ${text.substring(0, 50)}...`
+                  });
+                }
               }
             }
           } else {
             yComments.push([yComment]);
           }
   
-          // Handle mentions
-              // Enhanced mention handling
-        mentions.forEach(mention => {
-          const mentionedUser = users.find(u => u.id === mention.userId);
-          if (!mentionedUser || mentionedUser.id === user.id) return;
-
-          console.log(`Creating notification for ${mentionedUser.name} (${mention.userId})`);
-          
-          const yNotif = new Y.Map();
-          yNotif.set('id', nanoid());
-          yNotif.set('type', 'mention');
-          yNotif.set('commentId', yComment.get('id'));
-          yNotif.set('author', user);
-          yNotif.set('recipientId', mention.userId);
-          yNotif.set('timestamp', new Date().toISOString());
-          yNotif.set('read', false);
-          yNotif.set('content', `You were mentioned by ${user.name}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
-          
-          yNotifications.push([yNotif]);
-          console.log('Notification pushed to yNotifications');
+          // Create mention notifications (prioritized over replies)
+          processedMentions.forEach(mention => {
+            const mentionedUser = users.find(u => u.id === mention.userId);
+            if (!mentionedUser || mentionedUser.id === user.id) return;
+  
+            createNotification({
+              type: 'mention',
+              commentId: yComment.get('id'),
+              author: user,
+              recipientId: mention.userId,
+              content: `You were mentioned by ${user.name}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`
+            });
+          });
         });
-      });
-
   
         if (provider) updateActiveComment(provider, null);
       } catch (err) {

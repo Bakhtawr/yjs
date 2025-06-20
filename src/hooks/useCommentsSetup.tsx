@@ -22,71 +22,86 @@ export function useCommentsSetup(user: User | null) {
   useEffect(() => {
     if (!user) return;
 
-    const handleNotifications = () => {
-      const allNotifications = yNotifications.toArray().map(toNotification);
-      setNotifications(allNotifications);
+ // In the notification handling useEffect
+const handleNotifications = () => {
+  const allNotifications = yNotifications.toArray().map(toNotification);
+  setNotifications(allNotifications);
+
+  // Find unread notifications for current user
+  const unreadNotifications = allNotifications
+    .filter(n => !n.read && n.recipientId === user.id);
+
+  // Group notifications by comment ID to avoid duplicates
+  const notificationMap = new Map<string, YNotification>();
+  
+  unreadNotifications.forEach(notification => {
+    // Only keep the most relevant notification per comment
+    if (!notificationMap.has(notification.commentId) || 
+        notification.type === 'mention') {
+      notificationMap.set(notification.commentId, notification);
+    }
+  });
+
+  // Show notifications
+  Array.from(notificationMap.values()).forEach(latestUnread => {
+    // Skip if this is our own action
+    if (latestUnread.author.id === user.id) return;
+
+    let notificationClass = '';
+    let actionText = '';
     
-      // Find unread notifications for current user
-      const unreadNotifications = allNotifications
-        .filter(n => !n.read && n.recipientId === user.id);
-    
-      unreadNotifications.forEach(latestUnread => {
-        // Skip if this is our own action
-        if (latestUnread.author.id === user.id) return;
-    
-        let notificationClass = '';
-        
-        if (latestUnread.type === 'mention') {
-          notificationClass = 'bg-blue-50 border-l-4 border-blue-500';
-        } else if (latestUnread.type === 'reply') {
-          notificationClass = 'bg-green-50 border-l-4 border-green-500';
-        }
-    
-        toast.custom(t => (
-          <div
-            onClick={() => {
-              const element = document.getElementById(`comment-${latestUnread.commentId}`);
-              element?.scrollIntoView({ behavior: 'smooth' });
-              toast.dismiss(t.id);
-              
-              // Mark as read
-              ydoc.transact(() => {
-                const notificationMap = yNotifications
-                  .toArray()
-                  .find(n => n.get('id') === latestUnread.id);
-                
-                if (notificationMap) {
-                  notificationMap.set('read', true);
-                }
-              });
-            }}
-            className={`p-4 rounded-lg shadow-md flex items-start gap-3 cursor-pointer ${notificationClass}`}
-          >
-            <div
-              className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold"
-              style={{ backgroundColor: latestUnread.author.color }}
-            >
-              {latestUnread.author.name.charAt(0)}
-            </div>
-            <div className="flex-1">
-              <p className="font-medium text-gray-900">{latestUnread.author.name}</p>
-              <p className="text-sm text-gray-600 mt-1">
-                {latestUnread.type === 'mention' ? 'mentioned you' : 
-                 latestUnread.type === 'reply' ? 'replied to your comment' : ''}
-              </p>
-              {latestUnread.content && (
-                <p className="text-sm mt-2 text-gray-700 bg-white p-2 rounded">
-                  {latestUnread.content}
-                </p>
-              )}
-            </div>
-          </div>
-        ), { 
-          duration: Infinity, 
-          position: 'top-right'
-        });
-      });
-    };
+    if (latestUnread.type === 'mention') {
+      notificationClass = 'bg-blue-50 border-l-4 border-blue-500';
+      actionText = 'mentioned you';
+    } else if (latestUnread.type === 'reply') {
+      notificationClass = 'bg-green-50 border-l-4 border-green-500';
+      actionText = 'replied to your comment';
+    }
+
+    toast.custom(t => (
+      <div
+        onClick={() => {
+          const element = document.getElementById(`comment-${latestUnread.commentId}`);
+          element?.scrollIntoView({ behavior: 'smooth' });
+          toast.dismiss(t.id);
+          
+          // Mark as read
+          ydoc.transact(() => {
+            const notificationMap = yNotifications
+              .toArray()
+              .find(n => n.get('id') === latestUnread.id);
+            
+            if (notificationMap) {
+              notificationMap.set('read', true);
+            }
+          });
+        }}
+        className={`p-4 rounded-lg shadow-md flex items-start gap-3 cursor-pointer ${notificationClass}`}
+      >
+        <div
+          className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold"
+          style={{ backgroundColor: latestUnread.author.color }}
+        >
+          {latestUnread.author.name.charAt(0)}
+        </div>
+        <div className="flex-1">
+          <p className="font-medium text-gray-900">{latestUnread.author.name}</p>
+          <p className="text-sm text-gray-600 mt-1">
+            {actionText}
+          </p>
+          {latestUnread.content && (
+            <p className="text-sm mt-2 text-gray-700 bg-white p-2 rounded">
+              {latestUnread.content}
+            </p>
+          )}
+        </div>
+      </div>
+    ), { 
+      duration: Infinity, 
+      position: 'top-right'
+    });
+  });
+};
 
     yNotifications.observeDeep(handleNotifications);
     handleNotifications(); // Initial check

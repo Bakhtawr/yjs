@@ -69,8 +69,9 @@ const handleMentionSelect = (user: User) => {
   const textBeforeCursor = text.substring(0, mentionPosition);
   const textAfterCursor = text.substring(cursorPos);
   
-  // Insert mention with proper spacing
-  const newText = `${textBeforeCursor}@${user.name} ${textAfterCursor}`;
+  // Insert only the first name but store full user info
+  const firstName = user.name.split(' ')[0];
+  const newText = `${textBeforeCursor}@${firstName} ${textAfterCursor}`;
   
   onValueChange(newText);
   setShowSuggestions(false);
@@ -78,13 +79,12 @@ const handleMentionSelect = (user: User) => {
   // Move cursor after the mention
   setTimeout(() => {
     if (textareaRef.current) {
-      const newCursorPos = mentionPosition + user.name.length + 2; // +1 for @, +1 for space
+      const newCursorPos = mentionPosition + firstName.length + 2; // +1 for @, +1 for space
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
     }
   }, 0);
 
-  // Trigger mention extraction
   if (onMentionInsert) {
     onMentionInsert(newText);
   }

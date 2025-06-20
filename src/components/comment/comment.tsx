@@ -92,7 +92,8 @@ function Comments() {
           userId: matchUser.id,
           userName: matchUser.name,
           position: match.index,
-          length: match[0].length
+          length: match[0].length,
+          firstName: matchUser.name.split(' ')[0] // Store first name
         });
       }
     }

@@ -5,6 +5,8 @@ import { WebsocketProvider } from 'y-websocket';
 // Types and Interfaces
 // ----------------------
 
+let typingTimeout: NodeJS.Timeout;
+
 // User object for presence and authorship
 export interface User {
   find(arg0: (u: any) => boolean): unknown;
@@ -20,6 +22,7 @@ export interface Mention {
   userId: string;
   position: number;
   length: number;
+  firstName: string; 
 }
 
 // Recursive comment structure with optional mentions and editing states
@@ -93,13 +96,36 @@ export const setupWebsocketProvider = (ydoc: Y.Doc, user: User, roomName: string
 };
 
 // Toggle typing indicator (used in input fields)
-export const updateTypingStatus = (typing: boolean) => {
-  const current = provider.awareness.getLocalState();
-  provider.awareness.setLocalStateField('user', {
-    ...current?.user,
-    typing,
-  });
+export const updateTypingStatus = (typing: boolean, immediate = false) => {
+  // Clear any existing timeout
+  if (typingTimeout) clearTimeout(typingTimeout);
+
+  if (immediate) {
+    // Update status immediately
+    const current = provider.awareness.getLocalState();
+    provider.awareness.setLocalStateField('user', {
+      ...current?.user,
+      typing
+    });
+  } else {
+    // Set timeout to turn off typing after 3 seconds of inactivity
+    typingTimeout = setTimeout(() => {
+      const current = provider.awareness.getLocalState();
+      provider.awareness.setLocalStateField('user', {
+        ...current?.user,
+        typing: false
+      });
+    }, 3000);
+
+    // Set typing to true immediately
+    const current = provider.awareness.getLocalState();
+    provider.awareness.setLocalStateField('user', {
+      ...current?.user,
+      typing: true
+    });
+  }
 };
+
 
 // List of connected/visible users in the session
 export const getOnlineUsers = (): User[] => {
@@ -141,9 +167,16 @@ export const createYComment = (
   yComment.set('author', author);
   yComment.set('timestamp', new Date().toISOString());
   yComment.set('id', Date.now().toString());
-  yComment.set('replies', new Y.Array()); // Init empty reply thread
+  yComment.set('replies', new Y.Array());
   yComment.set('isEditing', isEditing);
-  yComment.set('mentions', mentions);
+  
+  // Process mentions to include first names
+  const processedMentions = mentions.map(mention => ({
+    ...mention,
+    firstName: mention.userName.split(' ')[0]
+  }));
+  
+  yComment.set('mentions', processedMentions);
   return yComment;
 };
 

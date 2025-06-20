@@ -1,6 +1,14 @@
 import React from 'react';
-import type { Comment, User, Mention } from '../../yjsSetup';
+import type { Comment, User } from '../../yjsSetup';
 import CommentInput from './commentInput';
+
+export interface Mention {
+  userId: string;
+  userName: string;
+  position: number;
+  length: number;
+  firstName?: string; // Add this
+}
 
 interface CommentListProps {
   comments: Comment[];
@@ -57,9 +65,8 @@ const CommentList: React.FC<CommentListProps> = ({
   
       // Get the mentioned user
       const mentionedUser = users.find(u => u.id === mention.userId);
-      const mentionText = text.substring(mention.position, mention.position + mention.length);
   
-      // Add styled mention with the user's color
+      // Add styled mention with the user's color (using first name)
       parts.push(
         <span 
           key={`${mention.position}-${mention.userId}`}
@@ -67,7 +74,7 @@ const CommentList: React.FC<CommentListProps> = ({
           style={{ color: mentionedUser?.color || '#3b82f6' }}
           title={`Mentioned ${mentionedUser?.name || mention.userName}`}
         >
-          {mentionText}
+          @{mentionedUser?.name.split(' ')[0] || mention.firstName}
         </span>
       );
   
