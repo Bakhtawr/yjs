@@ -53,8 +53,8 @@ function Comments() {
     provider,
     comments,
     users,
-    [], // Empty array since notifications are handled in useCommentsSetup
-    () => {}, // Empty callback
+    [], 
+    () => {}, 
     setError,
     setIsProcessing
   );
@@ -66,26 +66,34 @@ function Comments() {
         id: currentUser.uid,
         name: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
         color: generateColorFromUID(currentUser.uid),
-        avatar: currentUser.photoURL || undefined
+        avatar: currentUser.photoURL || undefined,
+        find: function (): unknown {
+          throw new Error('Function not implemented.');
+        }
       };
       setUser(userData);
     }
   }, [currentUser]);
 
-  // Extract mentions from text
   const extractMentions = useCallback((text: string): Mention[] => {
-    const mentionRegex = /@(\w+)/g;
+    // Updated regex to handle spaces in usernames
+    const mentionRegex = /@([a-zA-Z0-9_ ]+)/g;
     const mentions: Mention[] = [];
     let match: RegExpExecArray | null;
-
+  
     while ((match = mentionRegex.exec(text)) !== null) {
-      const username = match[1];
+      const username = match[1].trim(); // Trim whitespace
       const mentionedUser = users.find(u => 
         u.name.toLowerCase() === username.toLowerCase() && 
         u.id !== user?.id
       );
       
       if (mentionedUser) {
+        console.log('Extracted mention:', {
+          username: mentionedUser.name,
+          position: match.index,
+          length: match[0].length
+        });
         mentions.push({
           userId: mentionedUser.id,
           userName: mentionedUser.name,
@@ -94,7 +102,7 @@ function Comments() {
         });
       }
     }
-
+  
     return mentions;
   }, [users, user]);
 
@@ -151,6 +159,9 @@ function Comments() {
     setTyping(false);
   }, [addComment, newComment, replyText, replyingTo, mentions]);
 
+  const onMentionInsert = useCallback((text: string) => {
+    setMentions(extractMentions(text));
+  }, [extractMentions]);
 
   if (!user) {
     return (
@@ -186,11 +197,6 @@ function Comments() {
     );
   }
 
-  function onMentionInsert(text: string): void {
-    setMentions(extractMentions(text));
-  }
-  
-
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -215,24 +221,23 @@ function Comments() {
 
         {!replyingTo && (
           <CommentInput
-          value={newComment}
-          onChange={handleMainCommentChange}
-          onKeyPress={handleMainCommentKeyPress}
-          onSubmit={() => {
-            addComment(newComment, null, mentions);
-            setNewComment('');
-            setMentions([]);
-          }}
-          isProcessing={isProcessing}
-          onValueChange={(text) => {
-            setNewComment(text);
-            setMentions(extractMentions(text)); 
-          }}
-          onMentionInsert={onMentionInsert} 
-          users={users.filter(u => u.id !== user?.id)}
-          currentUserId={user?.id}
-        />
-        
+            value={newComment}
+            onChange={handleMainCommentChange}
+            onKeyPress={handleMainCommentKeyPress}
+            onSubmit={() => {
+              addComment(newComment, null, mentions);
+              setNewComment('');
+              setMentions([]);
+            }}
+            isProcessing={isProcessing}
+            onValueChange={(text) => {
+              setNewComment(text);
+              setMentions(extractMentions(text)); 
+            }}
+            onMentionInsert={onMentionInsert} 
+            users={users.filter(u => u.id !== user?.id)}
+            currentUserId={user?.id}
+          />
         )}
 
         <div className="space-y-4">
@@ -243,27 +248,24 @@ function Comments() {
             </div>
           ) : (
             <CommentList
-            comments={comments}
-            user={user}
-            users={users}
-            replyingTo={replyingTo}
-            setReplyingTo={setReplyingTo}
-            replyText={replyText}
-            setReplyText={setReplyText}
-            onReplyChange={handleReplyChange}
-            onReplyKeyPress={handleReplyKeyPress}
-            editingComment={editingComment}
-            setEditingComment={setEditingComment}
-            onAddComment={handleAddComment}
-            onDeleteComment={deleteComment}
-            onStartEditing={startEditing}
-            onSaveEdit={saveEdit}
-            onCancelEdit={cancelEdit}
-            typingUsers={typingUsers} 
-            onMentionInsert={onMentionInsert}
-
-          />
-          
+              comments={comments}
+              user={user}
+              users={users}
+              replyingTo={replyingTo}
+              setReplyingTo={setReplyingTo}
+              replyText={replyText}
+              setReplyText={setReplyText}
+              onReplyChange={handleReplyChange}
+              onReplyKeyPress={handleReplyKeyPress}
+              editingComment={editingComment}
+              setEditingComment={setEditingComment}
+              onAddComment={handleAddComment}
+              onDeleteComment={deleteComment}
+              onStartEditing={startEditing}
+              onSaveEdit={saveEdit}
+              onCancelEdit={cancelEdit}            
+              onMentionInsert={onMentionInsert}
+            />
           )}
         </div>
       </div>

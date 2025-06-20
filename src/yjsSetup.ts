@@ -7,6 +7,7 @@ import { WebsocketProvider } from 'y-websocket';
 
 // User object for presence and authorship
 export interface User {
+  find(arg0: (u: any) => boolean): unknown;
   id: string;
   name: string;
   color: string;

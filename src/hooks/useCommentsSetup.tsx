@@ -25,73 +25,65 @@ export function useCommentsSetup(user: User | null) {
     const handleNotifications = () => {
       const allNotifications = yNotifications.toArray().map(toNotification);
       setNotifications(allNotifications);
-
+    
       // Find unread notifications for current user
       const unreadNotifications = allNotifications
-        .filter(n => !n.read && n.recipientId === user.id && n.author.id !== user.id);
-
+        .filter(n => !n.read && n.recipientId === user.id);
+    
       unreadNotifications.forEach(latestUnread => {
-        console.log('New notification detected:', latestUnread);
+        // Skip if this is our own action
+        if (latestUnread.author.id === user.id) return;
+    
+        let notificationClass = '';
         
+        if (latestUnread.type === 'mention') {
+          notificationClass = 'bg-blue-50 border-l-4 border-blue-500';
+        } else if (latestUnread.type === 'reply') {
+          notificationClass = 'bg-green-50 border-l-4 border-green-500';
+        }
+    
         toast.custom(t => (
           <div
             onClick={() => {
               const element = document.getElementById(`comment-${latestUnread.commentId}`);
               element?.scrollIntoView({ behavior: 'smooth' });
               toast.dismiss(t.id);
+              
+              // Mark as read
+              ydoc.transact(() => {
+                const notificationMap = yNotifications
+                  .toArray()
+                  .find(n => n.get('id') === latestUnread.id);
+                
+                if (notificationMap) {
+                  notificationMap.set('read', true);
+                }
+              });
             }}
-            style={{
-              background: 'white',
-              borderRadius: '8px',
-              padding: '10px',
-              boxShadow: '0 0 10px rgba(0,0,0,0.1)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              color: 'black'
-            }}
+            className={`p-4 rounded-lg shadow-md flex items-start gap-3 cursor-pointer ${notificationClass}`}
           >
             <div
-              style={{
-                backgroundColor: latestUnread.author.color,
-                color: 'black',
-                borderRadius: '50%',
-                width: '24px',
-                height: '24px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 'bold',
-              }}
+              className="flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-bold"
+              style={{ backgroundColor: latestUnread.author.color }}
             >
               {latestUnread.author.name.charAt(0)}
             </div>
-            <span>
-              <strong>{latestUnread.author.name}</strong>{' '}
-              {latestUnread.type === 'reply'
-                ? 'replied'
-                : latestUnread.type === 'mention'
-                ? 'mentioned you'
-                : latestUnread.type === 'edit'
-                ? 'edited a comment'
-                : 'deleted a comment'}
-              : {latestUnread.content?.slice(0, 50)}
-            </span>
+            <div className="flex-1">
+              <p className="font-medium text-gray-900">{latestUnread.author.name}</p>
+              <p className="text-sm text-gray-600 mt-1">
+                {latestUnread.type === 'mention' ? 'mentioned you' : 
+                 latestUnread.type === 'reply' ? 'replied to your comment' : ''}
+              </p>
+              {latestUnread.content && (
+                <p className="text-sm mt-2 text-gray-700 bg-white p-2 rounded">
+                  {latestUnread.content}
+                </p>
+              )}
+            </div>
           </div>
-        ), { duration: Infinity }); 
-        
-        
-
-        // Mark as read in Yjs
-        ydoc.transact(() => {
-          const notificationMap = yNotifications
-            .toArray()
-            .find(n => n.get('id') === latestUnread.id);
-          
-          if (notificationMap) {
-            notificationMap.set('read', true);
-          }
+        ), { 
+          duration: Infinity, 
+          position: 'top-right'
         });
       });
     };

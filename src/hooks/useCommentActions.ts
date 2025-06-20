@@ -3,11 +3,10 @@ import { ydoc, yComments, toComment, createYComment, type User, type Comment, yN
 import { updateActiveComment } from '../utils/yjs/presenceUtils';
 import { Y } from '../yjsSetup';
 import { findComment } from '../utils/comments/commentUtils';
-
 import { nanoid } from 'nanoid';
 
 interface CommentActions {
-  addComment: (text: string, replyingTo: string | null, mentions?: Mention[]) => Promise<void>;
+  addComment: (text: string, replyingTo: string | null, mentions?: Mention[], parentPath?: string[]) => Promise<void>;
   startEditing: (comment: Comment) => void;
   saveEdit: () => Promise<void>;
   cancelEdit: () => void;
@@ -33,6 +32,7 @@ export function useCommentActions(
   setError: (error: string | null) => void, 
   setIsProcessing: (processing: boolean) => void
 ): CommentActions {
+  const users = _users;
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
 
   const createNotification = useCallback((notification: {
@@ -41,6 +41,7 @@ export function useCommentActions(
     author: User;
     recipientId: string;
     content?: string;
+    read?: boolean;
   }) => {
     const yNotif = new Y.Map();
     yNotif.set('id', nanoid());
@@ -64,10 +65,8 @@ export function useCommentActions(
   
         await ydoc.transact(async () => {
           if (replyingTo) {
-            // Start from the root comments array
             let currentArray = yComments;
             
-            // If we have a parent path, navigate through the reply chains
             if (parentPath.length > 0) {
               for (const parentId of parentPath) {
                 const parentIndex = currentArray.toArray().findIndex(c => toComment(c).id === parentId);
@@ -79,7 +78,6 @@ export function useCommentActions(
               }
             }
   
-            // Find the immediate parent in the current array
             const parentIndex = currentArray.toArray().findIndex(c => toComment(c).id === replyingTo);
             if (parentIndex !== -1) {
               const parent = currentArray.get(parentIndex);
@@ -87,38 +85,43 @@ export function useCommentActions(
               replies.push([yComment]);
   
               const parentComment = toComment(parent);
-              
-              // Only notify if replying to someone else's comment
               if (parentComment.author.id !== user.id) {
                 createNotification({
                   type: 'reply',
                   commentId: replyingTo,
                   author: user,
                   recipientId: parentComment.author.id,
-                  content: `Replied to your comment: ${text.substring(0, 100)}`
+                  content: `Replied to your comment: ${text.substring(0, 50)}...`
                 });
               }
-  
-              parent.set('updatedAt', new Date().toISOString());
             }
           } else {
-            // Top-level comment
             yComments.push([yComment]);
           }
   
           // Handle mentions
-          mentions.forEach(mention => {
-            if (mention.userId !== user.id) {
-              createNotification({
-                type: 'mention',
-                commentId: yComment.get('id'),
-                author: user,
-                recipientId: mention.userId,
-                content: `Mentioned you: ${text.substring(0, 100)}`
-              });
-            }
-          });
+              // Enhanced mention handling
+        mentions.forEach(mention => {
+          const mentionedUser = users.find(u => u.id === mention.userId);
+          if (!mentionedUser || mentionedUser.id === user.id) return;
+
+          console.log(`Creating notification for ${mentionedUser.name} (${mention.userId})`);
+          
+          const yNotif = new Y.Map();
+          yNotif.set('id', nanoid());
+          yNotif.set('type', 'mention');
+          yNotif.set('commentId', yComment.get('id'));
+          yNotif.set('author', user);
+          yNotif.set('recipientId', mention.userId);
+          yNotif.set('timestamp', new Date().toISOString());
+          yNotif.set('read', false);
+          yNotif.set('content', `You were mentioned by ${user.name}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+          
+          yNotifications.push([yNotif]);
+          console.log('Notification pushed to yNotifications');
         });
+      });
+
   
         if (provider) updateActiveComment(provider, null);
       } catch (err) {
@@ -128,7 +131,7 @@ export function useCommentActions(
         setIsProcessing(false);
       }
     },
-    [user, provider, createNotification, setIsProcessing, setError]
+    [user, provider, users, createNotification, setIsProcessing, setError]
   );
 
   const startEditing = useCallback(
@@ -171,13 +174,12 @@ export function useCommentActions(
                 item.set('isEditing', false);
                 item.set('updatedAt', new Date().toISOString());
 
-                // Notify about edit if text changed significantly
                 if (oldText !== editingComment.text) {
                   createNotification({
                     type: 'edit',
                     commentId: editingComment.id,
                     author: user,
-                    recipientId: user.id, // Could be changed to notify others
+                    recipientId: user.id,
                     content: `Edited comment: ${editingComment.text.substring(0, 100)}`
                   });
                 }
@@ -252,7 +254,7 @@ export function useCommentActions(
                   type: 'delete',
                   commentId: id,
                   author: user,
-                  recipientId: user.id, // Could be changed to notify others
+                  recipientId: user.id,
                   content: 'Deleted a reply'
                 });
               }
@@ -265,7 +267,7 @@ export function useCommentActions(
                 type: 'delete',
                 commentId: id,
                 author: user,
-                recipientId: user.id, // Could be changed to notify others
+                recipientId: user.id,
                 content: 'Deleted a comment'
               });
             }

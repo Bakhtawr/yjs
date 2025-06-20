@@ -19,3 +19,11 @@
 textarea{
   color: black;
 }
+
+.mention {
+  font-weight: 600;
+  color: #3b82f6; /* blue-500 */
+}
+.mention:hover {
+  text-decoration: underline;
+}

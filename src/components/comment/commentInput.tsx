@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import type { User } from '../../yjsSetup';
 
 interface CommentInputProps {
@@ -21,90 +21,94 @@ const CommentInput: React.FC<CommentInputProps> = ({
   onSubmit,
   isProcessing,
   users,
-  currentUserId
+  currentUserId,
+  onMentionInsert
 }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState<User[]>([]);
   const [, setMentionQuery] = useState('');
-  const [, setMentionPosition] = useState(0);
+  const [mentionPosition, setMentionPosition] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     onChange(e);
+    onValueChange(text);
     
     const cursorPos = e.target.selectionStart;
     const textBeforeCursor = text.substring(0, cursorPos);
     const lastAtPos = textBeforeCursor.lastIndexOf('@');
     
-    if (lastAtPos >= 0 && /^[\w@]$/.test(textBeforeCursor.charAt(lastAtPos + 1))) {
-      const query = textBeforeCursor.substring(lastAtPos + 1, cursorPos);
+    if (lastAtPos >= 0) {
+      const query = textBeforeCursor.substring(lastAtPos + 1, cursorPos).trim();
       setMentionQuery(query);
       setMentionPosition(lastAtPos);
-      setShowSuggestions(true);
       
-      const filteredUsers = users.filter(u => 
-        u.name.toLowerCase().includes(query.toLowerCase()) && 
-        u.id !== currentUserId
-      );
-      setSuggestions(filteredUsers);
+      if (query.length > 0) {
+        setShowSuggestions(true);
+        const filteredUsers = users.filter(u => 
+          u.name.toLowerCase().includes(query.toLowerCase()) && 
+          u.id !== currentUserId
+        );
+        setSuggestions(filteredUsers);
+      } else {
+        setShowSuggestions(false);
+      }
     } else {
       setShowSuggestions(false);
     }
   };
 
-  const handleMentionSelect = (user: User) => {
-    if (!textareaRef.current) return;
-    
-    const text = value;
-    const cursorPos = textareaRef.current.selectionStart;
-    const textBeforeCursor = text.substring(0, cursorPos);
-    const textAfterCursor = text.substring(cursorPos);
-    
-    // Find the last '@' before cursor
-    const lastAtPos = textBeforeCursor.lastIndexOf('@');
-    
-    if (lastAtPos === -1) return; // No '@' found
-    
-    // Replace from '@' to cursor position with the mentioned username
-    const newText = 
-      textBeforeCursor.substring(0, lastAtPos) + 
-      `@${user.name}` + 
-      textAfterCursor;
-    
-    onValueChange(newText);
-    setShowSuggestions(false);
-    
-    // Focus and set cursor after the mention
-    setTimeout(() => {
-      if (textareaRef.current) {
-        const newCursorPos = lastAtPos + user.name.length + 1; // +1 for '@'
-        textareaRef.current.focus();
-        textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
-      }
-    }, 0);
-  };
+// In CommentInput.tsx
+const handleMentionSelect = (user: User) => {
+  if (!textareaRef.current) return;
+  
+  const text = value;
+  const cursorPos = textareaRef.current.selectionStart;
+  const textBeforeCursor = text.substring(0, mentionPosition);
+  const textAfterCursor = text.substring(cursorPos);
+  
+  // Insert mention with proper spacing
+  const newText = `${textBeforeCursor}@${user.name} ${textAfterCursor}`;
+  
+  onValueChange(newText);
+  setShowSuggestions(false);
+  
+  // Move cursor after the mention
+  setTimeout(() => {
+    if (textareaRef.current) {
+      const newCursorPos = mentionPosition + user.name.length + 2; // +1 for @, +1 for space
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+    }
+  }, 0);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (textareaRef.current && !textareaRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // Trigger mention extraction
+  if (onMentionInsert) {
+    onMentionInsert(newText);
+  }
+};
 
   // Handle keyboard navigation in suggestions
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (showSuggestions && suggestions.length > 0) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+      if (e.key === 'ArrowDown') {
         e.preventDefault();
-        // Implement keyboard navigation if needed
-        if (e.key === 'Enter' && suggestions.length === 1) {
-          handleMentionSelect(suggestions[0]);
-        }
+        setActiveSuggestionIndex(prev => 
+          prev < suggestions.length - 1 ? prev + 1 : prev
+        );
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveSuggestionIndex(prev => 
+          prev > 0 ? prev - 1 : 0
+        );
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        handleMentionSelect(suggestions[activeSuggestionIndex]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSuggestions(false);
       }
     }
     onKeyPress(e);
@@ -124,10 +128,12 @@ const CommentInput: React.FC<CommentInputProps> = ({
       
       {showSuggestions && suggestions.length > 0 && (
         <div className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 max-h-60 overflow-auto">
-          {suggestions.map(user => (
+          {suggestions.map((user, index) => (
             <div
               key={user.id}
-              className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center"
+              className={`px-4 py-2 text-black hover:bg-gray-100 cursor-pointer flex items-center ${
+                index === activeSuggestionIndex ? 'bg-gray-100' : ''
+              }`}
               onClick={() => handleMentionSelect(user)}
             >
               {user.avatar ? (

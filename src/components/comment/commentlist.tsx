@@ -19,7 +19,6 @@ interface CommentListProps {
   onStartEditing: (comment: Comment) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
-  typingUsers: User[];
   onMentionInsert: (text: string) => void; // ✅ Add this line
 }
 
@@ -39,51 +38,47 @@ const CommentList: React.FC<CommentListProps> = ({
   onStartEditing,
   onSaveEdit,
   onCancelEdit,
-  typingUsers,
   setReplyText,
   onMentionInsert
 }) => {
-  const renderTextWithMentions = (text: string, mentions: Mention[] = []) => {
-    if (!mentions.length) return text;
 
+  const renderTextWithMentions = (text: string, mentions: Mention[] = [], users: User[]) => {
+    if (!mentions || mentions.length === 0) return text;
+  
     const parts = [];
     let lastIndex = 0;
-
-    mentions
-      .sort((a, b) => a.position - b.position)
-      .forEach((mention) => {
-        // Add text before mention
-        if (mention.position > lastIndex) {
-          parts.push(text.substring(lastIndex, mention.position));
-        }
-
-        // Add mention
-        const mentionedUser = users.find(u => u.id === mention.userId);
-        if (mentionedUser) {
-          parts.push(
-            <span 
-              key={`${mention.position}-${mention.userId}`}
-              className="font-medium text-blue-600 hover:underline cursor-pointer"
-              title={`@${mentionedUser.name}`}
-              onClick={() => {
-                // You could add navigation to user profile here
-              }}
-            >
-              {text.substring(mention.position, mention.position + mention.length)}
-            </span>
-          );
-        } else {
-          parts.push(text.substring(mention.position, mention.position + mention.length));
-        }
-
-        lastIndex = mention.position + mention.length;
-      });
-
+  
+    // Sort mentions by position
+    mentions.sort((a, b) => a.position - b.position).forEach((mention) => {
+      // Add text before mention
+      if (mention.position > lastIndex) {
+        parts.push(text.substring(lastIndex, mention.position));
+      }
+  
+      // Get the mentioned user
+      const mentionedUser = users.find(u => u.id === mention.userId);
+      const mentionText = text.substring(mention.position, mention.position + mention.length);
+  
+      // Add styled mention with the user's color
+      parts.push(
+        <span 
+          key={`${mention.position}-${mention.userId}`}
+          className="font-semibold hover:underline cursor-pointer"
+          style={{ color: mentionedUser?.color || '#3b82f6' }}
+          title={`Mentioned ${mentionedUser?.name || mention.userName}`}
+        >
+          {mentionText}
+        </span>
+      );
+  
+      lastIndex = mention.position + mention.length;
+    });
+  
     // Add remaining text
     if (lastIndex < text.length) {
       parts.push(text.substring(lastIndex));
     }
-
+  
     return parts;
   };
 
@@ -95,8 +90,6 @@ const CommentList: React.FC<CommentListProps> = ({
       const replies = Array.isArray(comment.replies) ? comment.replies : [];
       const isCurrentUser = comment.author.id === user.id;
       const isEditing = editingComment?.id === comment.id;
-      const mentionedUsers = comment.mentions || [];
-      const isTyping = typingUsers.some(u => u.id === comment.author.id && u.id !== user.id);
 
       return (
         <div 
@@ -131,11 +124,7 @@ const CommentList: React.FC<CommentListProps> = ({
                         <span className="ml-1 text-xs text-blue-600">(you)</span>
                       )}
                     </h4>
-                    {isTyping && (
-                      <span className="ml-2 text-xs text-gray-500 animate-pulse">
-                        typing...
-                      </span>
-                    )}
+                   
                   </div>
                   <span className="text-xs text-gray-500">
                     {new Date(comment.timestamp).toLocaleString()}
@@ -201,18 +190,11 @@ const CommentList: React.FC<CommentListProps> = ({
               </div>
             ) : (
               <div className="pl-10">
-                <p className="text-gray-700 whitespace-pre-line">
-                  {renderTextWithMentions(comment.text, mentionedUsers)}
-                </p>
+               <p className="text-gray-700 whitespace-pre-line">
+  {renderTextWithMentions(comment.text, comment.mentions || [], users)}
+</p>
 
-                {mentionedUsers.length > 0 && (
-                  <div className="mt-1 text-xs text-gray-500">
-                    Mentioned: {mentionedUsers.map(m => {
-                      const user = users.find(u => u.id === m.userId);
-                      return user ? user.name : m.userName;
-                    }).join(', ')}
-                  </div>
-                )}
+                
               </div>
             )}
     
