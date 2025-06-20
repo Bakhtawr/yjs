@@ -76,35 +76,30 @@ function Comments() {
   }, [currentUser]);
 
   const extractMentions = useCallback((text: string): Mention[] => {
-    // Updated regex to handle spaces in usernames
-    const mentionRegex = /@([a-zA-Z0-9_ ]+)/g;
-    const mentions: Mention[] = [];
+    const mentionRegex = /@(\w+)/g;
+    const found: Mention[] = [];
     let match: RegExpExecArray | null;
   
     while ((match = mentionRegex.exec(text)) !== null) {
-      const username = match[1].trim(); // Trim whitespace
-      const mentionedUser = users.find(u => 
-        u.name.toLowerCase() === username.toLowerCase() && 
-        u.id !== user?.id
+      const typed = match[1].toLowerCase(); // e.g. "firstname"
+  
+      const matchUser = users.find(
+        u => u.name.toLowerCase().startsWith(typed) && u.id !== currentUser?.uid
       );
-      
-      if (mentionedUser) {
-        console.log('Extracted mention:', {
-          username: mentionedUser.name,
-          position: match.index,
-          length: match[0].length
-        });
-        mentions.push({
-          userId: mentionedUser.id,
-          userName: mentionedUser.name,
+  
+      if (matchUser) {
+        found.push({
+          userId: matchUser.id,
+          userName: matchUser.name,
           position: match.index,
           length: match[0].length
         });
       }
     }
   
-    return mentions;
-  }, [users, user]);
+    return found;
+  }, [users, currentUser?.uid]);
+  
 
   const handleReplyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
